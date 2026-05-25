@@ -4,11 +4,11 @@ from datetime import datetime
 from streamlit_gsheets import GSheetsConnection
 
 # Pengaturan judul halaman web
-st.set_page_config(page_title="POS Multi-Marketplace & Manajemen Harga Harian", page_icon="🏪", layout="wide")
+st.set_page_config(page_title="POS Multi-Marketplace & Google Sheets Cloud", page_icon="🏪", layout="wide")
 
 # --- KONEKSI GOOGLE SHEETS ---
 # ⚠️ PASTIKAN KAMU MENEMPELKAN URL GOOGLE SHEETS KAMU DI BAWAH INI DAN AKSESNYA SUDAH "ANYONE WITH LINK AS EDITOR"
-URL_GOOGLE_SHEETS = "PASTE_LINK_GOOGLE_SHEETS_KAMU_DI_SINI"
+URL_GOOGLE_SHEETS = "https://docs.google.com/spreadsheets/d/1foDPHLRcOh6EOyiI30MnEof55e9cg9XfCpHq2Ijlwso/edit?usp=drive_link"
 
 try:
     conn = st.connection("gsheets", type=GSheetsConnection)
@@ -39,14 +39,14 @@ KONS_MARKETPLACE = {
     "Offline / WA": {"persen": 0.00, "fix": 0}
 }
 
-# --- FUNGSI MUAT & SIMPAN DATA VIA CLOUD (VERSI PERBAIKAN ANTI-ERROR) ---
+# --- FUNGSI MUAT & SIMPAN DATA VIA CLOUD ---
 def muat_semua_data():
     try:
-        # Membaca langsung dari Google Sheets yang sudah diisi manual di Langkah 1
+        # Membaca langsung dari Google Sheets (ttl=0 dipasang agar data selalu paling baru, anti-delay)
         df_transaksi = conn.read(spreadsheet=URL_GOOGLE_SHEETS, worksheet="Sheet1", ttl=0)
         df_harga = conn.read(spreadsheet=URL_GOOGLE_SHEETS, worksheet="Sheet2", ttl=0)
         
-        # Bersihkan dari baris kosong (jika ada pembacaan berlebih dari Google Sheets)
+        # Bersihkan dari baris kosong otomatis
         df_transaksi = df_transaksi.dropna(how='all')
         df_harga = df_harga.dropna(how='all')
     except Exception as e:
@@ -54,7 +54,6 @@ def muat_semua_data():
         df_transaksi = pd.DataFrame(columns=["Waktu", "Tanggal", "Platform", "Produk", "Harga Jual", "Harga Modal", "Jumlah", "Biaya Admin %", "Biaya Fix", "Biaya Lain", "Total Omset", "Total Profit"])
         df_harga = pd.DataFrame([{"Produk": p, "Harga Jual": 100000, "Harga Modal": 60000} for p in MASTER_PRODUK])
         
-    # Pastikan struktur kolom bersih dari penamaan otomatis pandas yang rusak
     df_transaksi = df_transaksi.loc[:, ~df_transaksi.columns.str.contains('^Unnamed')]
     df_harga = df_harga.loc[:, ~df_harga.columns.str.contains('^Unnamed')]
     return df_transaksi, df_harga
@@ -95,11 +94,13 @@ def simpan_transaksi_cloud(platform, produk, harga_jual, harga_modal, jumlah, bi
     
     df_total = pd.concat([df_transaksi_aktif, data_baru], ignore_index=True)
     conn.update(spreadsheet=URL_GOOGLE_SHEETS, worksheet="Sheet1", data=df_total)
+    st.cache_data.clear() # Membersihkan memori cache agar data langsung muncul real-time
 
 def hapus_transaksi_cloud(index_yang_dihapus):
     if index_yang_dihapus in df_transaksi_aktif.index:
         df_baru = df_transaksi_aktif.drop(index_yang_dihapus)
         conn.update(spreadsheet=URL_GOOGLE_SHEETS, worksheet="Sheet1", data=df_baru)
+        st.cache_data.clear() # Membersihkan memori cache agar baris terhapus hilang real-time
         return True
     return False
 
@@ -118,7 +119,6 @@ with tab1:
         st.markdown("### 🛍️ Detail Penjualan")
         platform_pilihan = st.selectbox("Pilih Platform Marketplace", options=list(KONS_MARKETPLACE.keys()))
         
-        # Ambil daftar produk langsung dari Sheet2 Google Sheets agar dinamis
         opsi_produk_cloud = df_harga_aktif["Produk"].tolist() if not df_harga_aktif.empty else MASTER_PRODUK
         nama_produk = st.selectbox("Nama Produk / SKU", options=opsi_produk_cloud)
         
@@ -175,7 +175,7 @@ with tab2:
             
             if platform_terpilih != "Semua Platform":
                 df_filtered = df_filtered[df_filtered["Platform"] == platform_terpilih]
-            if producto_terpilih := produk_terpilih != "Semua Produk":
+            if produk_terpilih != "Semua Produk":
                 df_filtered = df_filtered[df_filtered["Produk"] == produk_terpilih]
                 
             if df_filtered.empty:
@@ -226,5 +226,6 @@ with tab3:
     
     if st.button("💾 Simpan Perubahan Harga ke Cloud", type="primary", use_container_width=True):
         conn.update(spreadsheet=URL_GOOGLE_SHEETS, worksheet="Sheet2", data=df_editor)
+        st.cache_data.clear() # Membersihkan memori cache agar harga baru langsung aktif di kasir
         st.success("🎉 Harga harian berhasil diperbarui di server cloud Google Sheets!")
         st.rerun()
