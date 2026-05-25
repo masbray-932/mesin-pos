@@ -40,8 +40,6 @@ AKUN_USER = {
 PRODUK_DEFAULT = []
 
 # 3. DICTIONARY BIAYA ADMIN TERBARU
-# Shopee: 8.25% + 4.5% + 4.33% = 17.08% | Fix = 1250
-# TikTok: 7.14% + 6.62% + 7% + 3% = 23.76% | Fix = 1250
 KONS_MARKETPLACE = {
     "Shopee": {"persen": 17.08, "fix": 1250},
     "TikTok Shop": {"persen": 23.76, "fix": 1250}
@@ -49,12 +47,10 @@ KONS_MARKETPLACE = {
 
 # --- FUNGSI DETEKSI & MUAT DATABASE PRO LEVEL ---
 def muat_daftar_produk():
-    """Memuat list produk dengan aman dari error tipe data"""
     if os.path.exists(DB_MASTER_PRODUK):
         try:
             df = pd.read_csv(DB_MASTER_PRODUK)
             if not df.empty and "Produk" in df.columns:
-                # Ambil data, ubah ke string, bersihkan spasi, abaikan duplikat nama
                 list_prod = df["Produk"].dropna().astype(str).str.strip().unique().tolist()
                 return [p for p in list_prod if p != ""]
         except Exception:
@@ -62,20 +58,15 @@ def muat_daftar_produk():
     return PRODUK_DEFAULT
 
 def muat_database_harga():
-    """Memuat tabel harga harian dengan sinkronisasi super aman"""
     daftar_produk_aktif = muat_daftar_produk()
     
     if os.path.exists(DB_HARGA):
         try:
             df = pd.read_csv(DB_HARGA)
             if not df.empty and "Produk" in df.columns:
-                # Bersihkan tipe data kolom produk agar seragam menjadi string bersih
                 df["Produk"] = df["Produk"].astype(str).str.strip()
-                
-                # Sinkronisasi: Buang produk yang tidak ada di master produk aktif
                 df = df[df["Produk"].isin(daftar_produk_aktif)]
                 
-                # Sinkronisasi: Cari produk yang ada di master tapi belum ada di tabel harga
                 missing_products = [p for p in daftar_produk_aktif if p not in df["Produk"].values]
                 if missing_products:
                     new_rows = pd.DataFrame([{"Produk": p, "Harga Jual": 100000, "Harga Modal": 60000} for p in missing_products])
@@ -85,7 +76,6 @@ def muat_database_harga():
         except Exception:
             pass
             
-    # Jika file harga kosong/error, generate ulang secara bersih
     default_data = [{"Produk": p, "Harga Jual": 100000, "Harga Modal": 60000} for p in daftar_produk_aktif]
     df = pd.DataFrame(default_data)
     df.to_csv(DB_HARGA, index=False)
@@ -98,21 +88,17 @@ def simpan_database_harga(df_baru):
         st.error(f"Gagal menyimpan harga: {e}")
 
 def tambah_produk_baru(nama_baru, h_jual, h_modal):
-    """Menambahkan produk baru secara linier satu-pintu (Anti-Double Input)"""
     nama_baru_clean = str(nama_baru).strip()
     daftar_produk = muat_daftar_produk()
     
-    # Validasi duplikasi huruf besar/kecil agar tidak kecolongan double
     daftar_produk_lower = [p.lower() for p in daftar_produk]
     if nama_baru_clean.lower() in daftar_produk_lower:
         return False, "Nama produk tersebut sudah terdaftar di sistem!"
         
-    # 1. Simpan ke master produk baru
     daftar_produk_baru = daftar_produk + [nama_baru_clean]
     df_master = pd.DataFrame({"Produk": daftar_produk_baru})
     df_master.to_csv(DB_MASTER_PRODUK, index=False)
     
-    # 2. Ambil data harga yang ada saat ini secara aman
     try:
         if os.path.exists(DB_HARGA):
             df_harga = pd.read_csv(DB_HARGA)
@@ -122,14 +108,9 @@ def tambah_produk_baru(nama_baru, h_jual, h_modal):
     except Exception:
         df_harga = pd.DataFrame(columns=["Produk", "Harga Jual", "Harga Modal"])
         
-    # 3. Bersihkan sisa-sisa nama produk yang mirip jika terlanjur ada di file harga
     df_harga = df_harga[df_harga["Produk"].str.lower() != nama_baru_clean.lower()]
-    
-    # 4. Suntikkan baris data tunggal dengan harga inputan owner asli
     row_baru = pd.DataFrame([{"Produk": nama_baru_clean, "Harga Jual": int(h_jual), "Harga Modal": int(h_modal)}])
     df_harga = pd.concat([df_harga, row_baru], ignore_index=True)
-    
-    # 5. Kunci file database harga
     df_harga.to_csv(DB_HARGA, index=False)
     return True, f"Produk '{nama_baru_clean}' sukses terdaftar tunggal!"
 
@@ -143,7 +124,6 @@ def hapus_produk_by_name(nama_hapus):
     df_master = pd.DataFrame({"Produk": daftar_produk})
     df_master.to_csv(DB_MASTER_PRODUK, index=False)
     
-    # Bersihkan total dari database harga harian
     if os.path.exists(DB_HARGA):
         try:
             df_harga = pd.read_csv(DB_HARGA)
@@ -224,9 +204,8 @@ if not st.session_state.logged_in:
                     st.error("❌ Username atau Password salah!")
     st.stop()
 
-# --- AMBIL DATA AKTIF (DIJAMIN AMAN SEKARANG) ---
+# --- AMBIL DATA MASTER PRODUK AKTIF ---
 MASTER_PRODUK_AKTIF = muat_daftar_produk()
-df_harga_aktif = muat_database_harga()
 
 with st.sidebar:
     st.markdown(f"### 👤 Akun Aktif")
@@ -256,7 +235,9 @@ with tab1:
             platform_pilihan = st.selectbox("Pilih Platform Marketplace", options=list(KONS_MARKETPLACE.keys()))
             nama_produk = st.selectbox("Nama Produk / SKU", options=MASTER_PRODUK_AKTIF)
             
-            info_produk = df_harga_aktif[df_harga_aktif["Produk"] == nama_produk].iloc[0]
+            # Membaca database fresh real-time
+            df_harga_terbaru = muat_database_harga()
+            info_produk = df_harga_terbaru[df_harga_terbaru["Produk"] == nama_produk].iloc[0]
             harga_jual_terkunci = int(info_produk["Harga Jual"])
             harga_modal_terkunci = int(info_produk["Harga Modal"])
             
@@ -283,7 +264,7 @@ with tab1:
 
         if st.button("💾 Simpan Transaksi Ke Database", type="primary", use_container_width=True):
             simpan_transaksi(platform_pilihan, nama_produk, harga_jual_terkunci, harga_modal_terkunci, jumlah_terjual, biaya_lainnya)
-            st.success(f"✅ Transaksi [{platform_pilihan}] berhasil disimpan!")
+            st.success(f"✅ Transaksi [{platform_pilihan}] berhasil disimpan dengan harga pasar terbaru!")
             st.rerun()
 
 # --- TAB 2: RIWAYAT & LAPORAN ---
@@ -355,6 +336,7 @@ with tab2:
 
 # --- TAB 3: MANAJEMEN PRODUK & HARGA ---
 with tab3:
+    df_harga_aktif = muat_database_harga()
     if st.session_state.user_role == "Owner":
         st.markdown("## 🛠️ Menu Manajemen Produk (Khusus Owner)")
         col_add, col_del = st.columns(2)
@@ -395,6 +377,8 @@ with tab3:
         st.info("Belum ada data tabel harga harian karena produk masih kosong, Bestie.")
     else:
         st.info("💡 Klik langsung pada angka di tabel, ubah nilainya, lalu klik tombol simpan di bawah.")
+        
+        # Tabel Editor Utama
         df_editor = st.data_editor(
             df_harga_aktif, 
             disabled=["Produk"], 
@@ -406,7 +390,19 @@ with tab3:
             }
         )
         
+        # 🔥 CRITICAL FIX: Tombol Simpan dipaksa membaca revisi data langsung dari state layar editor
         if st.button("💾 Simpan Perubahan Harga Hari Ini", type="primary", use_container_width=True):
-            simpan_database_harga(df_editor)
-            st.success("🎉 Sukses! Harga berhasil diperbarui!")
+            if "editor_harga" in st.session_state and "edited_rows" in st.session_state.editor_harga:
+                perubahan = st.session_state.editor_harga["edited_rows"]
+                # Rekonstruksi baris demi baris yang diedit user
+                for indeks_baris, kolom_berubah in perubahan.items():
+                    idx = int(indeks_baris)
+                    if "Harga Jual" in kolom_berubah:
+                        df_harga_aktif.at[idx, "Harga Jual"] = int(kolom_berubah["Harga Jual"])
+                    if "Harga Modal" in kolom_berubah:
+                        df_harga_aktif.at[idx, "Harga Modal"] = int(kolom_berubah["Harga Modal"])
+            
+            # Simpan data final yang telah direkonstruksi
+            simpan_database_harga(df_harga_aktif)
+            st.success("🎉 Sukses Besar! Harga harian resmi diperbarui dan langsung aktif di kasir!")
             st.rerun()
