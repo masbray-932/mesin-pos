@@ -7,15 +7,15 @@ from streamlit_gsheets import GSheetsConnection
 st.set_page_config(page_title="POS Multi-Marketplace & Manajemen Harga Harian", page_icon="🏪", layout="wide")
 
 # --- KONEKSI GOOGLE SHEETS ---
-# Pastikan kamu memasukkan URL Google Sheets kamu yang sudah di-share sebagai 'Editor' di bawah ini:
-URL_GOOGLE_SHEETS = "https://docs.google.com/spreadsheets/d/1foDPHLRcOh6EOyiI30MnEof55e9cg9XfCpHq2Ijlwso/edit?usp=drive_link"
+# ⚠️ PASTIKAN KAMU MENEMPELKAN URL GOOGLE SHEETS KAMU DI BAWAH INI DAN AKSESNYA SUDAH "ANYONE WITH LINK AS EDITOR"
+URL_GOOGLE_SHEETS = "PASTE_LINK_GOOGLE_SHEETS_KAMU_DI_SINI"
 
 try:
     conn = st.connection("gsheets", type=GSheetsConnection)
 except Exception:
     st.error("Gagal menghubungkan ke Google Sheets. Pastikan library streamlit-gsheets-connection sudah terinstall.")
 
-# 1. DAFTAR MASTER PRODUK (Sebagai Acuan Utama)
+# 1. DAFTAR MASTER PRODUK (Sebagai Acuan Cadangan)
 MASTER_PRODUK = [
     "Ayam Kampung Omega",
     "Ayam Kampung Omega Grade A",
@@ -39,22 +39,22 @@ KONS_MARKETPLACE = {
     "Offline / WA": {"persen": 0.00, "fix": 0}
 }
 
-# --- FUNGSI MUAT & SIMPAN DATA VIA CLOUD ---
+# --- FUNGSI MUAT & SIMPAN DATA VIA CLOUD (VERSI PERBAIKAN ANTI-ERROR) ---
 def muat_semua_data():
     try:
-        # Membaca data dari Sheet1 (Transaksi) dan Sheet2 (Harga)
+        # Membaca langsung dari Google Sheets yang sudah diisi manual di Langkah 1
         df_transaksi = conn.read(spreadsheet=URL_GOOGLE_SHEETS, worksheet="Sheet1", ttl=0)
         df_harga = conn.read(spreadsheet=URL_GOOGLE_SHEETS, worksheet="Sheet2", ttl=0)
-    except Exception:
-        # Jika sheet masih kosong atau error, buat dataframe baru
+        
+        # Bersihkan dari baris kosong (jika ada pembacaan berlebih dari Google Sheets)
+        df_transaksi = df_transaksi.dropna(how='all')
+        df_harga = df_harga.dropna(how='all')
+    except Exception as e:
+        st.error(f"Error membaca spreadsheet: {e}. Pastikan nama worksheet adalah Sheet1 dan Sheet2.")
         df_transaksi = pd.DataFrame(columns=["Waktu", "Tanggal", "Platform", "Produk", "Harga Jual", "Harga Modal", "Jumlah", "Biaya Admin %", "Biaya Fix", "Biaya Lain", "Total Omset", "Total Profit"])
         df_harga = pd.DataFrame([{"Produk": p, "Harga Jual": 100000, "Harga Modal": 60000} for p in MASTER_PRODUK])
         
-        # Inisialisasi awal ke Google Sheets
-        conn.update(spreadsheet=URL_GOOGLE_SHEETS, worksheet="Sheet1", data=df_transaksi)
-        conn.update(spreadsheet=URL_GOOGLE_SHEETS, worksheet="Sheet2", data=df_harga)
-        
-    # Pastikan struktur kolom bersih dari Unnamed columns jika ada error pembacaan kosong
+    # Pastikan struktur kolom bersih dari penamaan otomatis pandas yang rusak
     df_transaksi = df_transaksi.loc[:, ~df_transaksi.columns.str.contains('^Unnamed')]
     df_harga = df_harga.loc[:, ~df_harga.columns.str.contains('^Unnamed')]
     return df_transaksi, df_harga
@@ -117,12 +117,18 @@ with tab1:
     with col1:
         st.markdown("### 🛍️ Detail Penjualan")
         platform_pilihan = st.selectbox("Pilih Platform Marketplace", options=list(KONS_MARKETPLACE.keys()))
-        nama_produk = st.selectbox("Nama Produk / SKU", options=MASTER_PRODUK)
         
-        # Mengambil harga dari data sheet harga
-        info_produk = df_harga_aktif[df_harga_aktif["Produk"] == nama_produk].iloc[0]
-        harga_jual_terkunci = int(info_produk["Harga Jual"])
-        harga_modal_terkunci = int(info_produk["Harga Modal"])
+        # Ambil daftar produk langsung dari Sheet2 Google Sheets agar dinamis
+        opsi_produk_cloud = df_harga_aktif["Produk"].tolist() if not df_harga_aktif.empty else MASTER_PRODUK
+        nama_produk = st.selectbox("Nama Produk / SKU", options=opsi_produk_cloud)
+        
+        if not df_harga_aktif.empty and nama_produk in df_harga_aktif["Produk"].values:
+            info_produk = df_harga_aktif[df_harga_aktif["Produk"] == nama_produk].iloc[0]
+            harga_jual_terkunci = int(info_produk["Harga Jual"])
+            harga_modal_terkunci = int(info_produk["Harga Modal"])
+        else:
+            harga_jual_terkunci = 100000
+            harga_modal_terkunci = 60000
         
         st.write(f"💵 **Harga Jual Hari Ini:** Rp {harga_jual_terkunci:,.0f}")
         st.write(f"📉 **Harga Modal Hari Ini:** Rp {harga_modal_terkunci:,.0f}")
@@ -159,7 +165,7 @@ with tab2:
             opsi_filter_platform = ["Semua Platform"] + list(KONS_MARKETPLACE.keys())
             platform_terpilih = st.selectbox("Filter Berdasarkan Platform", options=opsi_filter_platform)
         with col_f3:
-            opsi_filter_produk = ["Semua Produk"] + MASTER_PRODUK
+            opsi_filter_produk = ["Semua Produk"] + (df_harga_aktif["Produk"].tolist() if not df_harga_aktif.empty else MASTER_PRODUK)
             produk_terpilih = st.selectbox("Filter Berdasarkan Produk", options=opsi_filter_produk)
         
         if isinstance(rentang_tanggal, tuple) and len(rentang_tanggal) == 2:
@@ -169,7 +175,7 @@ with tab2:
             
             if platform_terpilih != "Semua Platform":
                 df_filtered = df_filtered[df_filtered["Platform"] == platform_terpilih]
-            if produk_terpilih != "Semua Produk":
+            if producto_terpilih := produk_terpilih != "Semua Produk":
                 df_filtered = df_filtered[df_filtered["Produk"] == produk_terpilih]
                 
             if df_filtered.empty:
