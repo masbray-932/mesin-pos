@@ -1,14 +1,19 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-import os
+from streamlit_gsheets import GSheetsConnection
 
 # Pengaturan judul halaman web
-st.set_page_config(page_title="POS & Kalkulator Profit Multi-Marketplace", page_icon="🏪", layout="wide")
+st.set_page_config(page_title="POS Multi-Marketplace & Manajemen Harga Harian", page_icon="🏪", layout="wide")
 
-# Nama file database
-DB_FILE = "database_transaksi.csv"
-DB_HARGA = "database_harga.csv"
+# --- KONEKSI GOOGLE SHEETS ---
+# Pastikan kamu memasukkan URL Google Sheets kamu yang sudah di-share sebagai 'Editor' di bawah ini:
+URL_GOOGLE_SHEETS = "https://docs.google.com/spreadsheets/d/1foDPHLRcOh6EOyiI30MnEof55e9cg9XfCpHq2Ijlwso/edit?usp=drive_link"
+
+try:
+    conn = st.connection("gsheets", type=GSheetsConnection)
+except Exception:
+    st.error("Gagal menghubungkan ke Google Sheets. Pastikan library streamlit-gsheets-connection sudah terinstall.")
 
 # 1. DAFTAR MASTER PRODUK (Sebagai Acuan Utama)
 MASTER_PRODUK = [
@@ -34,39 +39,30 @@ KONS_MARKETPLACE = {
     "Offline / WA": {"persen": 0.00, "fix": 0}
 }
 
-# --- FUNGSI DATABASE HARGA ---
-def muat_database_harga():
-    if os.path.exists(DB_HARGA):
-        df = pd.read_csv(DB_HARGA)
-        # Pastikan semua produk master ada di file
-        missing_products = [p for p in MASTER_PRODUK if p not in df["Produk"].values]
-        if missing_products:
-            new_rows = pd.DataFrame([{"Produk": p, "Harga Jual": 100000, "Harga Modal": 60000} for p in missing_products])
-            df = pd.concat([df, new_rows], ignore_index=True)
-            df.to_csv(DB_HARGA, index=False)
-        return df
-    else:
-        # Jika belum ada file, buat template default
-        default_data = []
-        for p in MASTER_PRODUK:
-            default_data.append({"Produk": p, "Harga Jual": 100000, "Harga Modal": 60000})
-        df = pd.DataFrame(default_data)
-        df.to_csv(DB_HARGA, index=False)
-        return df
+# --- FUNGSI MUAT & SIMPAN DATA VIA CLOUD ---
+def muat_semua_data():
+    try:
+        # Membaca data dari Sheet1 (Transaksi) dan Sheet2 (Harga)
+        df_transaksi = conn.read(spreadsheet=URL_GOOGLE_SHEETS, worksheet="Sheet1", ttl=0)
+        df_harga = conn.read(spreadsheet=URL_GOOGLE_SHEETS, worksheet="Sheet2", ttl=0)
+    except Exception:
+        # Jika sheet masih kosong atau error, buat dataframe baru
+        df_transaksi = pd.DataFrame(columns=["Waktu", "Tanggal", "Platform", "Produk", "Harga Jual", "Harga Modal", "Jumlah", "Biaya Admin %", "Biaya Fix", "Biaya Lain", "Total Omset", "Total Profit"])
+        df_harga = pd.DataFrame([{"Produk": p, "Harga Jual": 100000, "Harga Modal": 60000} for p in MASTER_PRODUK])
+        
+        # Inisialisasi awal ke Google Sheets
+        conn.update(spreadsheet=URL_GOOGLE_SHEETS, worksheet="Sheet1", data=df_transaksi)
+        conn.update(spreadsheet=URL_GOOGLE_SHEETS, worksheet="Sheet2", data=df_harga)
+        
+    # Pastikan struktur kolom bersih dari Unnamed columns jika ada error pembacaan kosong
+    df_transaksi = df_transaksi.loc[:, ~df_transaksi.columns.str.contains('^Unnamed')]
+    df_harga = df_harga.loc[:, ~df_harga.columns.str.contains('^Unnamed')]
+    return df_transaksi, df_harga
 
-def simpan_database_harga(df_baru):
-    df_baru.to_csv(DB_HARGA, index=False)
+# Ambil data awal dari Cloud
+df_transaksi_aktif, df_harga_aktif = muat_semua_data()
 
-# --- FUNGSI DATABASE TRANSAKSI ---
-def muat_data_transaksi():
-    if os.path.exists(DB_FILE):
-        return pd.read_csv(DB_FILE)
-    else:
-        return pd.DataFrame(columns=["Waktu", "Tanggal", "Platform", "Produk", "Harga Jual", "Harga Modal", "Jumlah", "Biaya Admin %", "Biaya Fix", "Biaya Lain", "Total Omset", "Total Profit"])
-
-def simpan_transaksi(platform, produk, harga_jual, harga_modal, jumlah, biaya_lain):
-    df = muat_data_transaksi()
-    
+def simpan_transaksi_cloud(platform, produk, harga_jual, harga_modal, jumlah, biaya_lain):
     waktu_sekarang = datetime.now()
     tanggal = waktu_sekarang.strftime("%Y-%m-%d")
     jam = waktu_sekarang.strftime("%H:%M:%S")
@@ -76,7 +72,6 @@ def simpan_transaksi(platform, produk, harga_jual, harga_modal, jumlah, biaya_la
     
     total_omset = harga_jual * jumlah
     total_modal = harga_modal * jumlah
-    
     total_admin_persen = (admin_persen_rate / 100) * total_omset
     total_biaya_lain = biaya_lain * jumlah
     
@@ -98,50 +93,44 @@ def simpan_transaksi(platform, produk, harga_jual, harga_modal, jumlah, biaya_la
         "Total Profit": total_profit
     }])
     
-    df = pd.concat([df, data_baru], ignore_index=True)
-    df.to_csv(DB_FILE, index=False)
+    df_total = pd.concat([df_transaksi_aktif, data_baru], ignore_index=True)
+    conn.update(spreadsheet=URL_GOOGLE_SHEETS, worksheet="Sheet1", data=df_total)
 
-def hapus_transaksi_by_index(index_yang_dihapus):
-    df = muat_data_transaksi()
-    if index_yang_dihapus in df.index:
-        df = df.drop(index_yang_dihapus)
-        df.to_csv(DB_FILE, index=False)
+def hapus_transaksi_cloud(index_yang_dihapus):
+    if index_yang_dihapus in df_transaksi_aktif.index:
+        df_baru = df_transaksi_aktif.drop(index_yang_dihapus)
+        conn.update(spreadsheet=URL_GOOGLE_SHEETS, worksheet="Sheet1", data=df_baru)
         return True
     return False
 
 # --- TAMPILAN UTAMA ---
-st.title("🏪 POS Multi-Marketplace & Manajemen Harga Harian")
-st.write("Sistem Kasir Pintar dengan Sinkronisasi Harga Modal & Jual Real-Time.")
-
-# Memuat data harga aktif saat ini
-df_harga_aktif = muat_database_harga()
+st.title("🏪 ONLINE POS Multi-Marketplace & Google Sheets Cloud")
+st.write("Sistem Kasir Cloud — Data Tersimpan Aman Langsung di Google Sheets.")
 
 # Membuat 3 Tab
 tab1, tab2, tab3 = st.tabs(["📥 Input Transaksi Baru", "📈 Riwayat & Laporan Penjualan", "⚙️ Atur Harga Modal & Jual Hari Ini"])
 
-# --- TAB 1: INPUT TRANSAKSI (KASIR UTAMA) ---
+# --- TAB 1: INPUT TRANSAKSI ---
 with tab1:
     st.subheader("Tambah Transaksi Baru")
-    
     col1, col2 = st.columns(2)
     with col1:
         st.markdown("### 🛍️ Detail Penjualan")
         platform_pilihan = st.selectbox("Pilih Platform Marketplace", options=list(KONS_MARKETPLACE.keys()))
         nama_produk = st.selectbox("Nama Produk / SKU", options=MASTER_PRODUK)
         
+        # Mengambil harga dari data sheet harga
         info_produk = df_harga_aktif[df_harga_aktif["Produk"] == nama_produk].iloc[0]
         harga_jual_terkunci = int(info_produk["Harga Jual"])
         harga_modal_terkunci = int(info_produk["Harga Modal"])
         
         st.write(f"💵 **Harga Jual Hari Ini:** Rp {harga_jual_terkunci:,.0f}")
         st.write(f"📉 **Harga Modal Hari Ini:** Rp {harga_modal_terkunci:,.0f}")
-        
         jumlah_terjual = st.number_input("Jumlah Terjual (pcs/pack)", min_value=1, value=1, key="jumlah")
 
     with col2:
         st.markdown("### 💸 Biaya Tambahan & Perhitungan")
-        biaya_lainnya = st.number_input("Biaya Lain-lain per Produk (Rp)", min_value=0, value=2000, help="Biaya packing, bubble wrap, dll", key="lain")
-        
+        biaya_lainnya = st.number_input("Biaya Lain-lain per Produk (Rp)", min_value=0, value=2000, key="lain")
         p_persen = KONS_MARKETPLACE[platform_pilihan]["persen"]
         p_fix = KONS_MARKETPLACE[platform_pilihan]["fix"]
         
@@ -151,17 +140,16 @@ with tab1:
         * Biaya Fix Transaksi: **Rp {p_fix:,.0f}** dipotong per transaksi.
         """)
 
-    if st.button("💾 Simpan Transaksi ke Database", type="primary", use_container_width=True):
-        simpan_transaksi(platform_pilihan, nama_produk, harga_jual_terkunci, harga_modal_terkunci, jumlah_terjual, biaya_lainnya)
-        st.success(f"✅ Transaksi [{platform_pilihan}] untuk '{nama_produk}' berhasil disimpan dengan harga hari ini!")
+    if st.button("💾 Simpan Transaksi ke Google Sheets Cloud", type="primary", use_container_width=True):
+        simpan_transaksi_cloud(platform_pilihan, nama_produk, harga_jual_terkunci, harga_modal_terkunci, jumlah_terjual, biaya_lainnya)
+        st.success(f"🎉 Sukses! Transaksi berhasil tercatat di Google Sheets Cloud Anda.")
+        st.rerun()
 
 # --- TAB 2: RIWAYAT & LAPORAN ---
 with tab2:
     st.subheader("Riwayat & Analisis Penjualan")
-    df_transaksi = muat_data_transaksi()
-    
-    if df_transaksi.empty:
-        st.info("Belum ada data transaksi yang disimpan.")
+    if df_transaksi_aktif.empty:
+        st.info("Belum ada data transaksi yang disimpan di Google Sheets.")
     else:
         col_f1, col_f2, col_f3 = st.columns(3)
         with col_f1:
@@ -176,9 +164,8 @@ with tab2:
         
         if isinstance(rentang_tanggal, tuple) and len(rentang_tanggal) == 2:
             tgl_mulai, tgl_akhir = rentang_tanggal
-            
-            df_transaksi['Tanggal'] = pd.to_datetime(df_transaksi['Tanggal']).dt.date
-            df_filtered = df_transaksi[(df_transaksi["Tanggal"] >= tgl_mulai) & (df_transaksi["Tanggal"] <= tgl_akhir)]
+            df_transaksi_aktif['Tanggal'] = pd.to_datetime(df_transaksi_aktif['Tanggal']).dt.date
+            df_filtered = df_transaksi_aktif[(df_transaksi_aktif["Tanggal"] >= tgl_mulai) & (df_transaksi_aktif["Tanggal"] <= tgl_akhir)]
             
             if platform_terpilih != "Semua Platform":
                 df_filtered = df_filtered[df_filtered["Platform"] == platform_terpilih]
@@ -198,64 +185,40 @@ with tab2:
                 m3.metric(label="Total Produk Terjual", value=f"{total_barang_terjual} pcs")
                 
                 st.markdown("---")
-                
-                # FITUR KOREKSI / HAPUS
-                st.markdown("### ✏️ Koreksi / Hapus Transaksi Salah")
+                st.markdown("### ✏️ Koreksi / Hapus Transaksi")
                 col_del1, col_del2 = st.columns([1, 3])
                 with col_del1:
                     id_hapus = st.number_input("Masukkan ID baris data:", min_value=0, step=1, value=0)
                 with col_del2:
-                    st.write("") 
-                    st.write("") 
+                    st.write("") ; st.write("")
                     if st.button("❌ Hapus Baris Ini", type="secondary"):
                         if id_hapus in df_filtered.index:
-                            if hapus_transaksi_by_index(id_hapus):
-                                st.success(f"💥 Transaksi dengan ID {id_hapus} berhasil dihapus!")
+                            if hapus_transaksi_cloud(id_hapus):
+                                st.success(f"💥 Baris ID {id_hapus} berhasil dihapus dari Cloud!")
                                 st.rerun()
                         else:
-                            st.error(f"ID {id_hapus} tidak ditemukan pada daftar transaksi yang sedang tampil!")
+                            st.error(f"ID {id_hapus} tidak ditemukan!")
 
                 st.markdown("---")
                 st.dataframe(df_filtered, use_container_width=True)
-                
-                csv_data = df_filtered.to_csv(index=False).encode('utf-8')
-                st.download_button(
-                    label="📥 Download Laporan Hasil Filter (CSV)",
-                    data=csv_data,
-                    file_name=f"laporan_filtered.csv",
-                    mime="text/csv",
-                )
 
-# --- TAB 3: FITUR BARU (DIUBAH AGAR MENDUKUNG FORMAT FORMAT 100.000) ---
+# --- TAB 3: ATUR HARGA ---
 with tab3:
     st.subheader("⚙️ Update Harga Modal & Jual Pasar Hari Ini")
-    st.write("Ubah harga di bawah ini apabila ada perubahan dari supplier atau strategi harga baru harian.")
+    st.info("💡 Ubah harga, lalu klik tombol simpan di bawah untuk menyinkronkan ke Google Sheets Cloud.")
     
-    st.info("💡 **Cara Mengubah:** Klik langsung pada angka di kolom **Harga Jual** atau **Harga Modal**, ketik angka baru, lalu klik tombol **'💾 Simpan Perubahan Harga'** di bawah tabel.")
-    
-    # KONFIGURASI TAMPILAN FORMAT RUPIAH DENGAN TITIK ( format="%.0f" )
     df_editor = st.data_editor(
         df_harga_aktif, 
         disabled=["Produk"], 
         use_container_width=True,
         key="editor_harga",
         column_config={
-            "Harga Jual": st.column_config.NumberColumn(
-                "Harga Jual (Rp)",
-                help="Masukkan harga jual toko hari ini",
-                min_value=0,
-                format="%d", # Mengubah tampilan otomatis menggunakan pemisah ribuan lokal (titik)
-            ),
-            "Harga Modal": st.column_config.NumberColumn(
-                "Harga Modal (Rp)",
-                help="Masukkan harga modal supplier hari ini",
-                min_value=0,
-                format="%d", # Mengubah tampilan otomatis menggunakan pemisah ribuan lokal (titik)
-            )
+            "Harga Jual": st.column_config.NumberColumn("Harga Jual (Rp)", min_value=0, format="%d"),
+            "Harga Modal": st.column_config.NumberColumn("Harga Modal (Rp)", min_value=0, format="%d")
         }
     )
     
-    if st.button("💾 Simpan Perubahan Harga", type="primary", use_container_width=True):
-        simpan_database_harga(df_editor)
-        st.success("🎉 Harga Modal & Harga Jual harian berhasil diperbarui dengan format mata uang yang rapi!")
+    if st.button("💾 Simpan Perubahan Harga ke Cloud", type="primary", use_container_width=True):
+        conn.update(spreadsheet=URL_GOOGLE_SHEETS, worksheet="Sheet2", data=df_editor)
+        st.success("🎉 Harga harian berhasil diperbarui di server cloud Google Sheets!")
         st.rerun()
