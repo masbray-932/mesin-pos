@@ -40,15 +40,21 @@ KONS_MARKETPLACE = {
 }
 
 # --- FUNGSI MUAT & SIMPAN DATA VIA CLOUD ---
+# --- FUNGSI MUAT & SIMPAN DATA VIA CLOUD (VERSI ANTI-KEYERROR) ---
 def muat_semua_data():
     try:
-        # Membaca langsung dari Google Sheets (ttl=0 dipasang agar data selalu paling baru, anti-delay)
+        # Membaca langsung dari Google Sheets
         df_transaksi = conn.read(spreadsheet=URL_GOOGLE_SHEETS, worksheet="Sheet1", ttl=0)
         df_harga = conn.read(spreadsheet=URL_GOOGLE_SHEETS, worksheet="Sheet2", ttl=0)
         
-        # Bersihkan dari baris kosong otomatis
+        # Bersihkan dari baris yang benar-benar kosong
         df_transaksi = df_transaksi.dropna(how='all')
         df_harga = df_harga.dropna(how='all')
+        
+        # [PENGAMAN KICK] Jika Sheet2 ternyata kosong atau kolom 'Produk' tidak terbaca, buatkan data default otomatis
+        if df_harga.empty or "Produk" not in df_harga.columns:
+            df_harga = pd.DataFrame([{"Produk": p, "Harga Jual": 100000, "Harga Modal": 60000} for p in MASTER_PRODUK])
+            
     except Exception as e:
         st.error(f"Error membaca spreadsheet: {e}. Pastikan nama worksheet adalah Sheet1 dan Sheet2.")
         df_transaksi = pd.DataFrame(columns=["Waktu", "Tanggal", "Platform", "Produk", "Harga Jual", "Harga Modal", "Jumlah", "Biaya Admin %", "Biaya Fix", "Biaya Lain", "Total Omset", "Total Profit"])
