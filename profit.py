@@ -12,6 +12,17 @@ DB_HARGA = "database_harga.csv"
 DB_MASTER_PRODUK = "database_master_produk.csv"
 
 # ==========================================
+# 🔔 FITUR POP-UP TOAST QUEUE (MANAJEMEN ANTREAN NOTIFIKASI)
+# ==========================================
+# Cek apakah ada antrean pop-up yang belum ditampilkan setelah halaman di-refresh
+if "pesan_toast" in st.session_state and st.session_state.pesan_toast:
+    st.toast(st.session_state.pesan_toast, icon=st.session_state.get("icon_toast", "✅"))
+    # Kosongkan antrean agar tidak muncul berulang-ulang
+    st.session_state.pesan_toast = None
+    st.session_state.icon_toast = "✅"
+# ==========================================
+
+# ==========================================
 # 🔥 PROTEKSI HARD RESET JIKA FILE CORRUPT
 # ==========================================
 def validasi_dan_bersihkan_file(nama_file, kolom_wajib):
@@ -185,7 +196,6 @@ def simpan_transaksi(platform, produk, harga_jual, harga_modal, jumlah, biaya_la
     df = pd.concat([df, data_baru], ignore_index=True)
     df.to_csv(DB_FILE, index=False)
 
-# 🔥 FIX: SINTAKS DITUTUP SEMPURNA DENGAN )
 def hapus_transaksi_by_index(index_yang_dihapus):
     df = muat_data_transaksi()
     if index_yang_dihapus in df.index:
@@ -240,7 +250,7 @@ st.write(f"Selamat bekerja, **{st.session_state.user_role}**! Data tersinkronisa
 
 tab1, tab2, tab3 = st.tabs(["📥 Input Transaksi Baru", "📈 Riwayat & Laporan Penjualan", "⚙️ Kelola Manajemen Produk & Harga"])
 
-# --- TAB 1: INPUT TRANSAKSI (🔥 FIX: REAL-TIME PRICE FETCHING) ---
+# --- TAB 1: INPUT TRANSAKSI ---
 with tab1:
     st.subheader("Tambah Transaksi Baru")
     if not MASTER_PRODUK_AKTIF:
@@ -252,7 +262,6 @@ with tab1:
             platform_pilihan = st.selectbox("Pilih Platform Marketplace", options=list(KONS_MARKETPLACE.keys()))
             nama_produk = st.selectbox("Nama Produk / SKU", options=MASTER_PRODUK_AKTIF)
             
-            # 🔥 Mengambil database harga paling fresh real-time
             df_harga_terbaru = muat_database_harga()
             info_produk = df_harga_terbaru[df_harga_terbaru["Produk"] == nama_produk].iloc[0]
             harga_jual_terkunci = int(info_produk["Harga Jual"])
@@ -277,8 +286,9 @@ with tab1:
         if st.button("💾 Simpan Transaksi Ke Database", type="primary", use_container_width=True):
             simpan_transaksi(platform_pilihan, nama_produk, harga_jual_terkunci, harga_modal_terkunci, jumlah_terjual, biaya_lainnya)
             
-            # 🔥 POP-UP TOAST TRANSAKSI SUKSES
-            st.toast(f"🎉 Kamu berhasil menginput transaksi {platform_pilihan} untuk '{nama_produk}'!", icon="✅")
+            # 🔥 SUNTIKAN ANTRIAN TOAST TRANSAKSI SUKSES
+            st.session_state.pesan_toast = f"🎉 Kamu berhasil menginput transaksi {platform_pilihan} untuk '{nama_produk}'!"
+            st.session_state.icon_toast = "✅"
             st.rerun()
 
 # --- TAB 2: RIWAYAT & LAPORAN ---
@@ -334,7 +344,9 @@ with tab2:
                     if st.button("❌ Hapus Baris Ini", type="secondary"):
                         if id_hapus in df_filtered.index:
                             if hapus_transaksi_by_index(id_hapus):
-                                st.toast(f"💥 Sukses! Baris transaksi ID {id_hapus} berhasil dihapus!", icon="🗑️")
+                                # 🔥 SUNTIKAN ANTRIAN TOAST HAPUS DATA
+                                st.session_state.pesan_toast = f"💥 Sukses! Baris transaksi ID {id_hapus} berhasil dihapus!"
+                                st.session_state.icon_toast = "🗑️"
                                 st.rerun()
                         else:
                             st.error(f"ID {id_hapus} tidak ditemukan!")
@@ -377,8 +389,9 @@ with tab3:
                     else:
                         sukses, pesan = tambah_produk_baru(input_nama_baru, input_harga_jual, input_harga_modal)
                         if sukses:
-                            # 🔥 POP-UP TOAST TAMBAH PRODUK SUKSES
-                            st.toast(f"📦 Sukses! Produk '{input_nama_baru}' berhasil terdaftar di sistem!", icon="📥")
+                            # 🔥 SUNTIKAN ANTRIAN TOAST TAMBAH PRODUK
+                            st.session_state.pesan_toast = f"📦 Sukses! Produk '{input_nama_baru}' berhasil terdaftar di sistem!"
+                            st.session_state.icon_toast = "📥"
                             st.rerun()
                         else:
                             st.error(pesan)
@@ -391,14 +404,15 @@ with tab3:
                 produk_mau_dihapus = st.selectbox("Pilih Produk yang Akan Dibuang", options=MASTER_PRODUK_AKTIF)
                 if st.button("❌ Hapus Produk Terpilih Selamanya", type="secondary", use_container_width=True):
                     if hapus_produk_by_name(produk_mau_dihapus):
-                        st.toast(f"🗑️ Sukses! Produk '{produk_mau_dihapus}' telah dihapus dari jualan!", icon="💥")
+                        # 🔥 SUNTIKAN ANTRIAN TOAST HAPUS PRODUK
+                        st.session_state.pesan_toast = f"🗑️ Sukses! Produk '{produk_mau_dihapus}' telah dihapus dari jualan!"
+                        st.session_state.icon_toast = "💥"
                         st.rerun()
         st.markdown("---")
 
     st.markdown("## ⚙️ Update Harga Modal & Jual Pasar Hari Ini")
     st.info("💡 Klik langsung pada angka di tabel, ubah nilainya, lalu klik tombol simpan di bawah.")
     
-    # Tabel Editor Utama
     df_editor = st.data_editor(
         df_harga_aktif, 
         disabled=["Produk"], 
@@ -410,7 +424,6 @@ with tab3:
         }
     )
     
-    # 🔥 FIX: Tombol Simpan dipaksa membaca revisi data langsung dari session_state
     if st.button("💾 Simpan Perubahan Harga Hari Ini", type="primary", use_container_width=True):
         if "editor_harga" in st.session_state and "edited_rows" in st.session_state.editor_harga:
             perubahan = st.session_state.editor_harga["edited_rows"]
@@ -423,6 +436,7 @@ with tab3:
         
         simpan_database_harga(df_harga_aktif)
         
-        # 🔥 POP-UP TOAST UPDATE MODAL & HARGA JUAL SUKSES
-        st.toast("🚀 Sukses! Kamu berhasil mengupdate modal dan harga jual pasar terbaru!", icon="💾")
+        # 🔥 SUNTIKAN ANTRIAN TOAST UPDATE HARGA & MODAL
+        st.session_state.pesan_toast = "🚀 Sukses! Kamu berhasil mengupdate modal dan harga jual pasar terbaru!"
+        st.session_state.icon_toast = "💾"
         st.rerun()
