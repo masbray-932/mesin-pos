@@ -156,7 +156,7 @@ with st.sidebar:
 st.title("🏪 MESIN POS MULTI-MARKETPLACE")
 st.write(f"Selamat bekerja, **{st.session_state.user_role}**! Data tersinkronisasi otomatis.")
 
-# 🌟 SEKARANG TAB 3 DIBUKA UNTUK SEMUA ROLE (Owner & Admin bisa akses)
+# Tab dibuka 3 untuk semua akun (Owner & Admin bisa akses semua tab)
 tab1, tab2, tab3 = st.tabs(["📥 Input Transaksi Baru", "📈 Riwayat & Laporan Penjualan", "⚙️ Atur Harga Modal & Jual Hari Ini"])
 
 # --- TAB 1: INPUT TRANSAKSI ---
@@ -173,8 +173,6 @@ with tab1:
         harga_modal_terkunci = int(info_produk["Harga Modal"])
         
         st.write(f"💵 **Harga Jual Hari Ini:** Rp {harga_jual_terkunci:,.0f}")
-        
-        # 🌟 Admin sekarang diperbolehkan melihat info modal saat input transaksi agar sinkron dengan perubahan yang mereka buat
         st.write(f"📉 **Harga Modal Hari Ini:** Rp {harga_modal_terkunci:,.0f}")
             
         jumlah_terjual = st.number_input("Jumlah Terjual (pcs/pack)", min_value=1, value=1, key="jumlah")
@@ -186,7 +184,6 @@ with tab1:
         p_persen = KONS_MARKETPLACE[platform_pilihan]["persen"]
         p_fix = KONS_MARKETPLACE[platform_pilihan]["fix"]
         
-        # Skema potongan admin marketplace dibuka agar Admin paham penyesuaian biaya potongan
         st.info(f"""
         **📋 Skema Potongan Admin Aktif ({platform_pilihan}):**
         * Biaya Admin Persen: **{p_persen}%** dari total omset.
@@ -198,7 +195,7 @@ with tab1:
         st.success(f"✅ Transaksi [{platform_pilihan}] untuk '{nama_produk}' berhasil disimpan!")
         st.rerun()
 
-# --- TAB 2: RIWAYAT & LAPORAN (PROTEKSI PRIVASI PROFIT TETAP AKTIF) ---
+# --- TAB 2: RIWAYAT & LAPORAN ---
 with tab2:
     st.subheader("Riwayat & Analisis Penjualan")
     df_transaksi = muat_data_transaksi()
@@ -235,19 +232,20 @@ with tab2:
                 total_barang_terjual = df_filtered["Jumlah"].sum()
                 
                 if st.session_state.user_role == "Owner":
-                    # Tampilan Owner: Muncul keuntungan bersih (Profit)
+                    # Tampilan Owner: Muncul 3 kartu lengkap beserta profit bersih
                     m1, m2, m3 = st.columns(3)
                     m1.metric(label="Total Omset Terfilter", value=f"Rp {total_omset:,.0f}")
                     m2.metric(label="Total Keuntungan Bersih (Profit)", value=f"Rp {total_profit:,.0f}")
                     m3.metric(label="Total Produk Terjual", value=f"{total_barang_terjual} pcs")
                 else:
-                    # Tampilan Admin: Profit Bersih TETAP RAHASIA / DISEMBUNYIKAN
+                    # Tampilan Admin: Angka Profit Bersih DISEMBUNYIKAN
                     m1, m2 = st.columns(2)
                     m1.metric(label="Total Omset Terfilter", value=f"Rp {total_omset:,.0f}")
                     m2.metric(label="Total Produk Terjual", value=f"{total_barang_terjual} pcs")
                 
                 st.markdown("---")
-                # 🔒 Koreksi data / hapus baris tetap dikunci hanya untuk Owner demi mencegah manipulasi data oleh kasir
+                
+                # Fitur hapus/koreksi data tetap dikunci khusus untuk Owner demi keamanan pembukuan
                 if st.session_state.user_role == "Owner":
                     st.markdown("### ✏️ Koreksi / Hapus Transaksi")
                     id_hapus = st.number_input("Masukkan ID baris data:", min_value=0, step=1, value=0)
@@ -257,4 +255,48 @@ with tab2:
                                 st.success(f"💥 Baris ID {id_hapus} berhasil dihapus!")
                                 st.rerun()
                         else:
-                            st.error
+                            st.error(f"ID {id_hapus} tidak ditemukan!")
+                    st.markdown("---")
+                
+                # SENSOR KOLOM DATA BERDASARKAN ROLE LOGIN
+                if st.session_state.user_role == "Admin":
+                    # Kolom rahasia (Harga Modal, Untung Bersih, Admin Marketplace) dipotong dari tabel Admin
+                    kolom_kasir = ["Waktu", "Tanggal", "Platform", "Produk", "Harga Jual", "Jumlah", "Biaya Lain", "Total Omset"]
+                    df_tampilan_tabel = df_filtered[kolom_kasir]
+                else:
+                    # Owner bebas melihat isi tabel lengkap mentah tanpa sensor
+                    df_tampilan_tabel = df_filtered
+                
+                st.dataframe(df_tampilan_tabel, use_container_width=True)
+                
+                # File download laporan disesuaikan dengan isi kolom role masing-masing
+                csv_data = df_tampilan_tabel.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label="📥 Download & Ekspor Laporan Penjualan (CSV)",
+                    data=csv_data,
+                    file_name=f"laporan_pos_{st.session_state.user_role.lower()}.csv",
+                    mime="text/csv",
+                )
+
+# --- TAB 3: ATUR HARGA (FIXED: BISA DIAKSES & DISIMPAN OLEH ADMIN & OWNER) ---
+with tab3:
+    st.subheader("⚙️ Update Harga Modal & Jual Pasar Hari Ini")
+    st.info("💡 Klik langsung pada angka, ubah nilainya, lalu klik tombol simpan di bawah.")
+    
+    # Menampilkan tabel data editor yang bisa langsung diketik angkanya
+    df_editor = st.data_editor(
+        df_harga_aktif, 
+        disabled=["Produk"], 
+        use_container_width=True,
+        key="editor_harga",
+        column_config={
+            "Harga Jual": st.column_config.NumberColumn("Harga Jual (Rp)", min_value=0, format="%d"),
+            "Harga Modal": st.column_config.NumberColumn("Harga Modal (Rp)", min_value=0, format="%d")
+        }
+    )
+    
+    # TOMBOL FIX: Menghapus error state, sekarang data langsung disimpan ke file CSV utama
+    if st.button("💾 Simpan Perubahan Harga Hari Ini", type="primary", use_container_width=True):
+        simpan_database_harga(df_editor)
+        st.success("🎉 Sukses! Harga Modal & Harga Jual harian berhasil diperbarui ke dalam sistem!")
+        st.rerun()
