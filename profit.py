@@ -179,7 +179,7 @@ with tab1:
 
     with col2:
         st.markdown("### 💸 Biaya Tambahan")
-        biaya_lainnya = st.number_input("Biaya Lain-lain per Produk (Rp)", min_value=0, value=2000, key="lain")
+        biaya_lainnya = st.number_input("Biaya Lain-lain per Produk (Rp)", min_value=0, value=0, key="lain")
         
         p_persen = KONS_MARKETPLACE[platform_pilihan]["persen"]
         p_fix = KONS_MARKETPLACE[platform_pilihan]["fix"]
