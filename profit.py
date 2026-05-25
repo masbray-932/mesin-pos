@@ -8,7 +8,7 @@ st.set_page_config(page_title="POS Multi-Marketplace & Google Sheets Cloud", pag
 
 # --- KONEKSI GOOGLE SHEETS ---
 # ⚠️ PASTIKAN KAMU MENEMPELKAN URL GOOGLE SHEETS KAMU DI BAWAH INI DAN AKSESNYA SUDAH "ANYONE WITH LINK AS EDITOR"
-URL_GOOGLE_SHEETS = "URL_GOOGLE_SHEETS = "https://docs.google.com/spreadsheets/d/1foDPHLRcOh6EOyiI30MnEof55e9cg9XfCpHq2Ijlwso/edit?usp=sharing"
+URL_GOOGLE_SHEETS = "https://docs.google.com/spreadsheets/d/1foDPHLRcOh6EOyiI30MnEof55e9cg9XfCpHq2Ijlwso/edit?usp=sharing"
 
 try:
     conn = st.connection("gsheets", type=GSheetsConnection)
