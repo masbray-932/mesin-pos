@@ -9,6 +9,7 @@ st.set_page_config(page_title="POS Multi-Marketplace & Manajemen Harga", page_ic
 # Nama file database lokal
 DB_FILE = "database_transaksi.csv"
 DB_HARGA = "database_harga.csv"
+DB_MASTER_PRODUK = "database_master_produk.csv"
 
 # 1. DATA LOGIN AKUN
 AKUN_USER = {
@@ -16,19 +17,11 @@ AKUN_USER = {
     "admin": {"password": "admin123", "role": "Admin"}
 }
 
-# 2. DAFTAR MASTER PRODUK
-MASTER_PRODUK = [
-    "Ayam Kampung Omega",
-    "Ayam Kampung Omega Grade A",
-    "Ayam Negri",
-    "Ayam Negri Omega",
-    "Ayam Kampung Kuning",
-    "Ayam Kampung Kuning Grade A",
-    "Puyuh",
-    "Bebek",
-    "Bebek Asin",
-    "Kampung Omega (30 butir)",
-    "Kampung Omega Grade A (30 butir)"
+# 2. DAFTAR MASTER PRODUK BAWAAN (Hanya dibuat jika file belum ada)
+PRODUK_DEFAULT = [
+    "Ayam Kampung Omega", "Ayam Kampung Omega Grade A", "Ayam Negri", 
+    "Ayam Negri Omega", "Ayam Kampung Kuning", "Ayam Kampung Kuning Grade A", 
+    "Puyuh", "Bebek", "Bebek Asin", "Kampung Omega (30 butir)", "Kampung Omega Grade A (30 butir)"
 ]
 
 # 3. DICTIONARY BIAYA ADMIN PER MARKETPLACE
@@ -40,24 +33,71 @@ KONS_MARKETPLACE = {
     "Offline / WA": {"persen": 0.00, "fix": 0}
 }
 
-# --- FUNGSI DATABASE HARGA LOKAL ---
+# --- FUNGSI UTAMA DATABASE MASTER PRODUK & HARGA ---
+def muat_daftar_produk():
+    """Memuat list produk saja dari file master"""
+    if os.path.exists(DB_MASTER_PRODUK):
+        df = pd.read_csv(DB_MASTER_PRODUK)
+        return df["Produk"].tolist()
+    else:
+        df = pd.DataFrame({"Produk": PRODUK_DEFAULT})
+        df.to_csv(DB_MASTER_PRODUK, index=False)
+        return PRODUK_DEFAULT
+
 def muat_database_harga():
+    """Memuat tabel harga modal & jual berdasarkan master produk aktif"""
+    daftar_produk_aktif = muat_daftar_produk()
+    
     if os.path.exists(DB_HARGA):
         df = pd.read_csv(DB_HARGA)
-        missing_products = [p for p in MASTER_PRODUK if p not in df["Produk"].values]
+        # Hapus produk di tabel harga jika sudah dihapus dari master produk
+        df = df[df["Produk"].isin(daftar_produk_aktif)]
+        # Tambah produk baru ke tabel harga jika belum terdaftar
+        missing_products = [p for p in daftar_produk_aktif if p not in df["Produk"].values]
         if missing_products:
             new_rows = pd.DataFrame([{"Produk": p, "Harga Jual": 100000, "Harga Modal": 60000} for p in missing_products])
             df = pd.concat([df, new_rows], ignore_index=True)
             df.to_csv(DB_HARGA, index=False)
         return df
     else:
-        default_data = [{"Produk": p, "Harga Jual": 100000, "Harga Modal": 60000} for p in MASTER_PRODUK]
+        default_data = [{"Produk": p, "Harga Jual": 100000, "Harga Modal": 60000} for p in daftar_produk_aktif]
         df = pd.DataFrame(default_data)
         df.to_csv(DB_HARGA, index=False)
         return df
 
 def simpan_database_harga(df_baru):
     df_baru.to_csv(DB_HARGA, index=False)
+
+def tambah_produk_baru(nama_baru, h_jual, h_modal):
+    """Menambahkan produk baru ke file master dan mengeset harga awalnya"""
+    daftar_produk = muat_daftar_produk()
+    if nama_baru in daftar_produk:
+        return False, "Nama produk sudah terdaftar di sistem!"
+        
+    # 1. Tambah ke master produk
+    df_master = pd.DataFrame({"Produk": daftar_produk + [nama_baru]})
+    df_master.to_csv(DB_MASTER_PRODUK, index=False)
+    
+    # 2. Tambah ke database harga
+    df_harga = muat_database_harga()
+    row_baru = pd.DataFrame([{"Produk": nama_baru, "Harga Jual": h_jual, "Harga Modal": h_modal}])
+    df_harga = pd.concat([df_harga, row_baru], ignore_index=True)
+    simpan_database_harga(df_harga)
+    return True, f"Produk '{nama_baru}' sukses ditambahkan!"
+
+def hapus_produk_by_name(nama_hapus):
+    """Menghapus produk dari sistem master"""
+    daftar_produk = muat_daftar_produk()
+    if nama_hapus not in daftar_produk:
+        return False
+        
+    daftar_produk.remove(nama_hapus)
+    df_master = pd.DataFrame({"Produk": daftar_produk})
+    df_master.to_csv(DB_MASTER_PRODUK, index=False)
+    
+    # Update tabel harga agar otomatis memotong baris produk tersebut
+    muat_database_harga()
+    return True
 
 # --- FUNGSI DATABASE TRANSAKSI LOKAL ---
 def muat_data_transaksi():
@@ -85,18 +125,10 @@ def simpan_transaksi(platform, produk, harga_jual, harga_modal, jumlah, biaya_la
     total_profit = total_omset - total_pengeluaran
     
     data_baru = pd.DataFrame([{
-        "Waktu": jam,
-        "Tanggal": tanggal,
-        "Platform": platform,
-        "Produk": produk,
-        "Harga Jual": harga_jual,
-        "Harga Modal": harga_modal,
-        "Jumlah": jumlah,
-        "Biaya Admin %": total_admin_persen,
-        "Biaya Fix": admin_fix_rate,
-        "Biaya Lain": total_biaya_lain,
-        "Total Omset": total_omset,
-        "Total Profit": total_profit
+        "Waktu": jam, "Tanggal": tanggal, "Platform": platform, "Produk": produk,
+        "Harga Jual": harga_jual, "Harga Modal": harga_modal, "Jumlah": jumlah,
+        "Biaya Admin %": total_admin_persen, "Biaya Fix": admin_fix_rate, "Biaya Lain": total_biaya_lain,
+        "Total Omset": total_omset, "Total Profit": total_profit
     }])
     
     df = pd.concat([df, data_baru], ignore_index=True)
@@ -116,10 +148,8 @@ if "logged_in" not in st.session_state:
     st.session_state.user_role = None
     st.session_state.username = ""
 
-# JIKA BELUM LOGIN, TAMPILKAN HALAMAN LOGIN
 if not st.session_state.logged_in:
     st.markdown("<h2 style='text-align: center;'>🔐 Login Sistem Kasir POS</h2>", unsafe_allow_html=True)
-    
     col_l1, col_l2, col_l3 = st.columns([1, 2, 1])
     with col_l2:
         with st.form("form_login"):
@@ -138,7 +168,8 @@ if not st.session_state.logged_in:
                     st.error("❌ Username atau Password salah, silakan cek kembali!")
     st.stop()
 
-# --- JIKA SUDAH LOGIN, TAMPILKAN HALAMAN KASIR UTAMA ---
+# --- RUNNING UTAMA ---
+MASTER_PRODUK_AKTIF = muat_daftar_produk()
 df_harga_aktif = muat_database_harga()
 
 # Membuat Sidebar
@@ -156,44 +187,44 @@ with st.sidebar:
 st.title("🏪 MESIN POS MULTI-MARKETPLACE")
 st.write(f"Selamat bekerja, **{st.session_state.user_role}**! Data tersinkronisasi otomatis.")
 
-# Tab dibuka 3 untuk semua akun (Owner & Admin bisa akses semua tab)
-tab1, tab2, tab3 = st.tabs(["📥 Input Transaksi Baru", "📈 Riwayat & Laporan Penjualan", "⚙️ Atur Harga Modal & Jual Hari Ini"])
+tab1, tab2, tab3 = st.tabs(["📥 Input Transaksi Baru", "📈 Riwayat & Laporan Penjualan", "⚙️ Kelola Manajemen Produk & Harga"])
 
 # --- TAB 1: INPUT TRANSAKSI ---
 with tab1:
     st.subheader("Tambah Transaksi Baru")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown("### 🛍️ Detail Penjualan")
-        platform_pilihan = st.selectbox("Pilih Platform Marketplace", options=list(KONS_MARKETPLACE.keys()))
-        nama_produk = st.selectbox("Nama Produk / SKU", options=MASTER_PRODUK)
-        
-        info_produk = df_harga_aktif[df_harga_aktif["Produk"] == nama_produk].iloc[0]
-        harga_jual_terkunci = int(info_produk["Harga Jual"])
-        harga_modal_terkunci = int(info_produk["Harga Modal"])
-        
-        st.write(f"💵 **Harga Jual Hari Ini:** Rp {harga_jual_terkunci:,.0f}")
-        st.write(f"📉 **Harga Modal Hari Ini:** Rp {harga_modal_terkunci:,.0f}")
+    if not MASTER_PRODUK_AKTIF:
+        st.warning("⚠️ Belum ada daftar produk di sistem. Silakan minta Owner untuk menambahkan produk terlebih dahulu di Tab 3.")
+    else:
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("### 🛍️ Detail Penjualan")
+            platform_pilihan = st.selectbox("Pilih Platform Marketplace", options=list(KONS_MARKETPLACE.keys()))
+            nama_produk = st.selectbox("Nama Produk / SKU", options=MASTER_PRODUK_AKTIF)
             
-        jumlah_terjual = st.number_input("Jumlah Terjual (pcs/pack)", min_value=1, value=1, key="jumlah")
+            info_produk = df_harga_aktif[df_harga_aktif["Produk"] == nama_produk].iloc[0]
+            harga_jual_terkunci = int(info_produk["Harga Jual"])
+            harga_modal_terkunci = int(info_produk["Harga Modal"])
+            
+            st.write(f"💵 **Harga Jual Hari Ini:** Rp {harga_jual_terkunci:,.0f}")
+            st.write(f"📉 **Harga Modal Hari Ini:** Rp {harga_modal_terkunci:,.0f}")
+            jumlah_terjual = st.number_input("Jumlah Terjual (pcs/pack)", min_value=1, value=1, key="jumlah")
 
-    with col2:
-        st.markdown("### 💸 Biaya Tambahan")
-        biaya_lainnya = st.number_input("Biaya Lain-lain per Produk (Rp)", min_value=0, value=0, key="lain")
-        
-        p_persen = KONS_MARKETPLACE[platform_pilihan]["persen"]
-        p_fix = KONS_MARKETPLACE[platform_pilihan]["fix"]
-        
-        st.info(f"""
-        **📋 Skema Potongan Admin Aktif ({platform_pilihan}):**
-        * Biaya Admin Persen: **{p_persen}%** dari total omset.
-        * Biaya Fix Transaksi: **Rp {p_fix:,.0f}** dipotong per transaksi.
-        """)
+        with col2:
+            st.markdown("### 💸 Biaya Tambahan")
+            biaya_lainnya = st.number_input("Biaya Lain-lain per Produk (Rp)", min_value=0, value=2000, key="lain")
+            p_persen = KONS_MARKETPLACE[platform_pilihan]["persen"]
+            p_fix = KONS_MARKETPLACE[platform_pilihan]["fix"]
+            
+            st.info(f"""
+            **📋 Skema Potongan Admin Aktif ({platform_pilihan}):**
+            * Biaya Admin Persen: **{p_persen}%** dari total omset.
+            * Biaya Fix Transaksi: **Rp {p_fix:,.0f}** dipotong per transaksi.
+            """)
 
-    if st.button("💾 Simpan Transaksi Ke Database", type="primary", use_container_width=True):
-        simpan_transaksi(platform_pilihan, nama_produk, harga_jual_terkunci, harga_modal_terkunci, jumlah_terjual, biaya_lainnya)
-        st.success(f"✅ Transaksi [{platform_pilihan}] untuk '{nama_produk}' berhasil disimpan!")
-        st.rerun()
+        if st.button("💾 Simpan Transaksi Ke Database", type="primary", use_container_width=True):
+            simpan_transaksi(platform_pilihan, nama_produk, harga_jual_terkunci, harga_modal_terkunci, jumlah_terjual, biaya_lainnya)
+            st.success(f"✅ Transaksi [{platform_pilihan}] untuk '{nama_produk}' berhasil disimpan!")
+            st.rerun()
 
 # --- TAB 2: RIWAYAT & LAPORAN ---
 with tab2:
@@ -211,7 +242,7 @@ with tab2:
             opsi_filter_platform = ["Semua Platform"] + list(KONS_MARKETPLACE.keys())
             platform_terpilih = st.selectbox("Filter Berdasarkan Platform", options=opsi_filter_platform)
         with col_f3:
-            opsi_filter_produk = ["Semua Produk"] + MASTER_PRODUK
+            opsi_filter_produk = ["Semua Produk"] + MASTER_PRODUK_AKTIF
             produk_terpilih = st.selectbox("Filter Berdasarkan Produk", options=opsi_filter_produk)
         
         if isinstance(rentang_tanggal, tuple) and len(rentang_tanggal) == 2:
@@ -221,82 +252,3 @@ with tab2:
             
             if platform_terpilih != "Semua Platform":
                 df_filtered = df_filtered[df_filtered["Platform"] == platform_terpilih]
-            if produk_terpilih != "Semua Produk":
-                df_filtered = df_filtered[df_filtered["Produk"] == produk_terpilih]
-                
-            if df_filtered.empty:
-                st.warning(f"Tidak ada transaksi yang cocok pada filter terpilih.")
-            else:
-                total_omset = df_filtered["Total Omset"].sum()
-                total_profit = df_filtered["Total Profit"].sum()
-                total_barang_terjual = df_filtered["Jumlah"].sum()
-                
-                if st.session_state.user_role == "Owner":
-                    # Tampilan Owner: Muncul 3 kartu lengkap beserta profit bersih
-                    m1, m2, m3 = st.columns(3)
-                    m1.metric(label="Total Omset Terfilter", value=f"Rp {total_omset:,.0f}")
-                    m2.metric(label="Total Keuntungan Bersih (Profit)", value=f"Rp {total_profit:,.0f}")
-                    m3.metric(label="Total Produk Terjual", value=f"{total_barang_terjual} pcs")
-                else:
-                    # Tampilan Admin: Angka Profit Bersih DISEMBUNYIKAN
-                    m1, m2 = st.columns(2)
-                    m1.metric(label="Total Omset Terfilter", value=f"Rp {total_omset:,.0f}")
-                    m2.metric(label="Total Produk Terjual", value=f"{total_barang_terjual} pcs")
-                
-                st.markdown("---")
-                
-                # Fitur hapus/koreksi data tetap dikunci khusus untuk Owner demi keamanan pembukuan
-                if st.session_state.user_role == "Owner":
-                    st.markdown("### ✏️ Koreksi / Hapus Transaksi")
-                    id_hapus = st.number_input("Masukkan ID baris data:", min_value=0, step=1, value=0)
-                    if st.button("❌ Hapus Baris Ini", type="secondary"):
-                        if id_hapus in df_filtered.index:
-                            if hapus_transaksi_by_index(id_hapus):
-                                st.success(f"💥 Baris ID {id_hapus} berhasil dihapus!")
-                                st.rerun()
-                        else:
-                            st.error(f"ID {id_hapus} tidak ditemukan!")
-                    st.markdown("---")
-                
-                # SENSOR KOLOM DATA BERDASARKAN ROLE LOGIN
-                if st.session_state.user_role == "Admin":
-                    # Kolom rahasia (Harga Modal, Untung Bersih, Admin Marketplace) dipotong dari tabel Admin
-                    kolom_kasir = ["Waktu", "Tanggal", "Platform", "Produk", "Harga Jual", "Jumlah", "Biaya Lain", "Total Omset"]
-                    df_tampilan_tabel = df_filtered[kolom_kasir]
-                else:
-                    # Owner bebas melihat isi tabel lengkap mentah tanpa sensor
-                    df_tampilan_tabel = df_filtered
-                
-                st.dataframe(df_tampilan_tabel, use_container_width=True)
-                
-                # File download laporan disesuaikan dengan isi kolom role masing-masing
-                csv_data = df_tampilan_tabel.to_csv(index=False).encode('utf-8')
-                st.download_button(
-                    label="📥 Download & Ekspor Laporan Penjualan (CSV)",
-                    data=csv_data,
-                    file_name=f"laporan_pos_{st.session_state.user_role.lower()}.csv",
-                    mime="text/csv",
-                )
-
-# --- TAB 3: ATUR HARGA (FIXED: BISA DIAKSES & DISIMPAN OLEH ADMIN & OWNER) ---
-with tab3:
-    st.subheader("⚙️ Update Harga Modal & Jual Pasar Hari Ini")
-    st.info("💡 Klik langsung pada angka, ubah nilainya, lalu klik tombol simpan di bawah.")
-    
-    # Menampilkan tabel data editor yang bisa langsung diketik angkanya
-    df_editor = st.data_editor(
-        df_harga_aktif, 
-        disabled=["Produk"], 
-        use_container_width=True,
-        key="editor_harga",
-        column_config={
-            "Harga Jual": st.column_config.NumberColumn("Harga Jual (Rp)", min_value=0, format="%d"),
-            "Harga Modal": st.column_config.NumberColumn("Harga Modal (Rp)", min_value=0, format="%d")
-        }
-    )
-    
-    # TOMBOL FIX: Menghapus error state, sekarang data langsung disimpan ke file CSV utama
-    if st.button("💾 Simpan Perubahan Harga Hari Ini", type="primary", use_container_width=True):
-        simpan_database_harga(df_editor)
-        st.success("🎉 Sukses! Harga Modal & Harga Jual harian berhasil diperbarui ke dalam sistem!")
-        st.rerun()
