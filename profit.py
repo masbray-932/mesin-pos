@@ -14,10 +14,8 @@ DB_MASTER_PRODUK = "database_master_produk.csv"
 # ==========================================
 # 🔔 FITUR POP-UP TOAST QUEUE (MANAJEMEN ANTREAN NOTIFIKASI)
 # ==========================================
-# Cek apakah ada antrean pop-up yang belum ditampilkan setelah halaman di-refresh
 if "pesan_toast" in st.session_state and st.session_state.pesan_toast:
     st.toast(st.session_state.pesan_toast, icon=st.session_state.get("icon_toast", "✅"))
-    # Kosongkan antrean agar tidak muncul berulang-ulang
     st.session_state.pesan_toast = None
     st.session_state.icon_toast = "✅"
 # ==========================================
@@ -196,14 +194,6 @@ def simpan_transaksi(platform, produk, harga_jual, harga_modal, jumlah, biaya_la
     df = pd.concat([df, data_baru], ignore_index=True)
     df.to_csv(DB_FILE, index=False)
 
-def hapus_transaksi_by_index(index_yang_dihapus):
-    df = muat_data_transaksi()
-    if index_yang_dihapus in df.index:
-        df = df.drop(index_yang_dihapus)
-        df.to_csv(DB_FILE, index=False)
-        return True
-    return False
-
 # --- LOGIKA SISTEM LOGIN ---
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
@@ -285,13 +275,11 @@ with tab1:
 
         if st.button("💾 Simpan Transaksi Ke Database", type="primary", use_container_width=True):
             simpan_transaksi(platform_pilihan, nama_produk, harga_jual_terkunci, harga_modal_terkunci, jumlah_terjual, biaya_lainnya)
-            
-            # 🔥 SUNTIKAN ANTRIAN TOAST TRANSAKSI SUKSES
             st.session_state.pesan_toast = f"🎉 Kamu berhasil menginput transaksi {platform_pilihan} untuk '{nama_produk}'!"
             st.session_state.icon_toast = "✅"
             st.rerun()
 
-# --- TAB 2: RIWAYAT & LAPORAN ---
+# --- TAB 2: RIWAYAT & LAPORAN (🔥 UPGRADE: CHECKBOX MULTI-DELETE) ---
 with tab2:
     st.subheader("Riwayat & Analisis Penjualan")
     df_transaksi = muat_data_transaksi()
@@ -313,7 +301,7 @@ with tab2:
         if isinstance(rentang_tanggal, tuple) and len(rentang_tanggal) == 2:
             tgl_mulai, tgl_akhir = rentang_tanggal
             df_transaksi['Tanggal'] = pd.to_datetime(df_transaksi['Tanggal']).dt.date
-            df_filtered = df_transaksi[(df_transaksi["Tanggal"] >= tgl_mulai) & (df_transaksi["Tanggal"] <= tgl_akhir)]
+            df_filtered = df_transaksi[(df_transaksi["Tanggal"] >= tgl_mulai) & (df_transaksi["Tanggal"] <= tgl_akhir)].copy()
             
             if platform_terpilih != "Semua Platform":
                 df_filtered = df_filtered[df_filtered["Platform"] == platform_terpilih]
@@ -338,28 +326,53 @@ with tab2:
                     m2.metric(label="Total Produk Terjual", value=f"{total_barang_terjual} pcs")
                 
                 st.markdown("---")
-                if st.session_state.user_role == "Owner":
-                    st.markdown("### ✏️ Koreksi / Hapus Transaksi")
-                    id_hapus = st.number_input("Masukkan ID baris data:", min_value=0, step=1, value=0)
-                    if st.button("❌ Hapus Baris Ini", type="secondary"):
-                        if id_hapus in df_filtered.index:
-                            if hapus_transaksi_by_index(id_hapus):
-                                # 🔥 SUNTIKAN ANTRIAN TOAST HAPUS DATA
-                                st.session_state.pesan_toast = f"💥 Sukses! Baris transaksi ID {id_hapus} berhasil dihapus!"
-                                st.session_state.icon_toast = "🗑️"
-                                st.rerun()
-                        else:
-                            st.error(f"ID {id_hapus} tidak ditemukan!")
-                    st.markdown("---")
                 
+                # SENSOR KOLOM DATA BERDASARKAN ROLE LOGIN
                 if st.session_state.user_role == "Admin":
                     kolom_kasir = ["Waktu", "Tanggal", "Platform", "Produk", "Harga Jual", "Jumlah", "Biaya Lain", "Total Omset"]
-                    df_tampilan_tabel = df_filtered[kolom_kasir]
+                    df_tampilan_tabel = df_filtered[kolom_kasir].copy()
                 else:
-                    df_tampilan_tabel = df_filtered
+                    df_tampilan_tabel = df_filtered.copy()
+
+                # 🔥 KEAJAIBAN BARU: INTERAKTIF SELECTION TABEL TRANSAKSI (Hanya untuk Owner)
+                if st.session_state.user_role == "Owner":
+                    st.markdown("### ✏️ Koreksi / Hapus Transaksi (Centang Baris di Tabel)")
+                    
+                    # Tambah kolom index buat acuan hapus agar stabil
+                    df_tampilan_tabel["ID Asli"] = df_tampilan_tabel.index
+                    
+                    # Tampilkan data editor dengan checkbox selection bawaan Streamlit
+                    df_dengan_centang = st.data_editor(
+                        df_tampilan_tabel,
+                        hide_index=True,
+                        use_container_width=True,
+                        disabled=[col for col in df_tampilan_tabel.columns if col != "Pilih"],
+                        column_config={
+                            "Pilih": st.column_config.CheckboxColumn("Pilih", default=False)
+                        },
+                        key="editor_transaksi_centang"
+                    )
+                    
+                    # Logika eksekusi multi-delete berdasarkan baris yang dicentang
+                    if "editor_transaksi_centang" in st.session_state and "edited_rows" in st.session_state.editor_transaksi_centang:
+                        perubahan_centang = st.session_state.editor_transaksi_centang["edited_rows"]
+                        list_id_hapus = [df_tampilan_tabel.iloc[int(idx)]["ID Asli"] for idx, status in perubahan_centang.items() if status.get("Pilih") == True]
+                        
+                        if list_id_hapus:
+                            st.write("")
+                            if st.button(f"❌ Hapus ({len(list_id_hapus)}) Transaksi Terpilih Selamanya", type="secondary", use_container_width=True):
+                                df_master_transaksi = muat_data_transaksi()
+                                df_master_transaksi = df_master_transaksi.drop(list_id_hapus)
+                                df_master_transaksi.to_csv(DB_FILE, index=False)
+                                
+                                st.session_state.pesan_toast = f"💥 Sukses! Berhasil menghapus {len(list_id_hapus)} transaksi!"
+                                st.session_state.icon_toast = "🗑️"
+                                st.rerun()
+                else:
+                    # Tampilan kasir biasa tanpa kolom ID Asli & Checkbox
+                    st.dataframe(df_tampilan_tabel, hide_index=True, use_container_width=True)
                 
-                st.dataframe(df_tampilan_tabel, use_container_width=True)
-                
+                st.markdown("---")
                 csv_data = df_tampilan_tabel.to_csv(index=False).encode('utf-8')
                 st.download_button(
                     label="📥 Download & Ekspor Laporan Penjualan (CSV)",
@@ -368,7 +381,7 @@ with tab2:
                     mime="text/csv",
                 )
 
-# --- TAB 3: MANAJEMEN PRODUK & HARGA ---
+# --- TAB 3: MANAJEMEN PRODUK & HARGA (🔥 UPGRADE: CHECKBOX DELETE PRODUK) ---
 with tab3:
     df_harga_aktif = muat_database_harga()
     if st.session_state.user_role == "Owner":
@@ -389,7 +402,6 @@ with tab3:
                     else:
                         sukses, pesan = tambah_produk_baru(input_nama_baru, input_harga_jual, input_harga_modal)
                         if sukses:
-                            # 🔥 SUNTIKAN ANTRIAN TOAST TAMBAH PRODUK
                             st.session_state.pesan_toast = f"📦 Sukses! Produk '{input_nama_baru}' berhasil terdaftar di sistem!"
                             st.session_state.icon_toast = "📥"
                             st.rerun()
@@ -397,46 +409,67 @@ with tab3:
                             st.error(pesan)
                             
         with col_del:
-            st.markdown("### 🗑️ Hapus Menu Produk")
+            st.markdown("### 🗑️ Hapus Menu Produk (Sistem Centang)")
             if not MASTER_PRODUK_AKTIF:
                 st.info("Belum ada produk aktif yang bisa dihapus.")
             else:
-                produk_mau_dihapus = st.selectbox("Pilih Produk yang Akan Dibuang", options=MASTER_PRODUK_AKTIF)
-                if st.button("❌ Hapus Produk Terpilih Selamanya", type="secondary", use_container_width=True):
-                    if hapus_produk_by_name(produk_mau_dihapus):
-                        # 🔥 SUNTIKAN ANTRIAN TOAST HAPUS PRODUK
-                        st.session_state.pesan_toast = f"🗑️ Sukses! Produk '{produk_mau_dihapus}' telah dihapus dari jualan!"
-                        st.session_state.icon_toast = "💥"
-                        st.rerun()
+                # Membuat dataframe tabel produk khusus untuk dicentang hapus
+                df_hapus_prod = pd.DataFrame({"Produk": MASTER_PRODUK_AKTIF})
+                
+                df_hapus_prod_centang = st.data_editor(
+                    df_hapus_prod,
+                    hide_index=True,
+                    use_container_width=True,
+                    disabled=["Produk"],
+                    column_config={
+                        "Pilih": st.column_config.CheckboxColumn("Pilih", default=False)
+                    },
+                    key="editor_produk_hapus_centang"
+                )
+                
+                # Deteksi baris mana saja yang dicentang oleh owner
+                if "editor_produk_hapus_centang" in st.session_state and "edited_rows" in st.session_state.editor_produk_hapus_centang:
+                    perubahan_prod = st.session_state.editor_produk_hapus_centang["edited_rows"]
+                    list_prod_hapus = [df_hapus_prod.iloc[int(idx)]["Produk"] for idx, status in perubahan_prod.items() if status.get("Pilih") == True]
+                    
+                    if list_prod_hapus:
+                        if st.button(f"❌ Hapus ({len(list_prod_hapus)}) Produk Tercentang", type="secondary", use_container_width=True):
+                            for p_nama in list_prod_hapus:
+                                hapus_produk_by_name(p_nama)
+                                
+                            st.session_state.pesan_toast = f"🗑️ Sukses! Berhasil membuang {len(list_prod_hapus)} menu produk!"
+                            st.session_state.icon_toast = "💥"
+                            st.rerun()
         st.markdown("---")
 
     st.markdown("## ⚙️ Update Harga Modal & Jual Pasar Hari Ini")
-    st.info("💡 Klik langsung pada angka di tabel, ubah nilainya, lalu klik tombol simpan di bawah.")
-    
-    df_editor = st.data_editor(
-        df_harga_aktif, 
-        disabled=["Produk"], 
-        use_container_width=True,
-        key="editor_harga",
-        column_config={
-            "Harga Jual": st.column_config.NumberColumn("Harga Jual (Rp)", min_value=0, format="%d"),
-            "Harga Modal": st.column_config.NumberColumn("Harga Modal (Rp)", min_value=0, format="%d")
-        }
-    )
-    
-    if st.button("💾 Simpan Perubahan Harga Hari Ini", type="primary", use_container_width=True):
-        if "editor_harga" in st.session_state and "edited_rows" in st.session_state.editor_harga:
-            perubahan = st.session_state.editor_harga["edited_rows"]
-            for indeks_baris, kolom_berubah in perubahan.items():
-                idx = int(indeks_baris)
-                if "Harga Jual" in kolom_berubah:
-                    df_harga_aktif.at[idx, "Harga Jual"] = int(kolom_berubah["Harga Jual"])
-                if "Harga Modal" in kolom_berubah:
-                    df_harga_aktif.at[idx, "Harga Modal"] = int(kolom_berubah["Harga Modal"])
+    if not MASTER_PRODUK_AKTIF:
+        st.info("Belum ada produk terdaftar untuk diatur harganya.")
+    else:
+        st.info("💡 Klik langsung pada angka di tabel, ubah nilainya, lalu klik tombol simpan di bawah.")
         
-        simpan_database_harga(df_harga_aktif)
+        df_editor = st.data_editor(
+            df_harga_aktif, 
+            disabled=["Produk"], 
+            use_container_width=True,
+            key="editor_harga",
+            column_config={
+                "Harga Jual": st.column_config.NumberColumn("Harga Jual (Rp)", min_value=0, format="%d"),
+                "Harga Modal": st.column_config.NumberColumn("Harga Modal (Rp)", min_value=0, format="%d")
+            }
+        )
         
-        # 🔥 SUNTIKAN ANTRIAN TOAST UPDATE HARGA & MODAL
-        st.session_state.pesan_toast = "🚀 Sukses! Kamu berhasil mengupdate modal dan harga jual pasar terbaru!"
-        st.session_state.icon_toast = "💾"
-        st.rerun()
+        if st.button("💾 Simpan Perubahan Harga Hari Ini", type="primary", use_container_width=True):
+            if "editor_harga" in st.session_state and "edited_rows" in st.session_state.editor_harga:
+                perubahan = st.session_state.editor_harga["edited_rows"]
+                for indeks_baris, kolom_berubah in perubahan.items():
+                    idx = int(indeks_baris)
+                    if "Harga Jual" in kolom_berubah:
+                        df_harga_aktif.at[idx, "Harga Jual"] = int(kolom_berubah["Harga Jual"])
+                    if "Harga Modal" in kolom_berubah:
+                        df_harga_aktif.at[idx, "Harga Modal"] = int(kolom_berubah["Harga Modal"])
+            
+            simpan_database_harga(df_harga_aktif)
+            st.session_state.pesan_toast = "🚀 Sukses! Kamu berhasil mengupdate modal dan harga jual pasar terbaru!"
+            st.session_state.icon_toast = "💾"
+            st.rerun()
