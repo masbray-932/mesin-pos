@@ -23,7 +23,7 @@ if "pesan_toast" in st.session_state and st.session_state.pesan_toast:
 # ==========================================
 # 🔥 PROTEKSI HARD RESET JIKA FILE CORRUPT
 # ==========================================
-def validasi_dan_bersihkan_file(nama_file, kolom_wajib):
+def validasi_dan_shared_clean(nama_file, kolom_wajib):
     if os.path.exists(nama_file):
         try:
             df = pd.read_csv(nama_file)
@@ -35,8 +35,8 @@ def validasi_dan_bersihkan_file(nama_file, kolom_wajib):
             except Exception:
                 pass
 
-validasi_dan_bersihkan_file(DB_MASTER_PRODUK, ["Produk"])
-validasi_dan_bersihkan_file(DB_HARGA, ["Produk", "Harga Jual", "Harga Modal"])
+validasi_dan_shared_clean(DB_MASTER_PRODUK, ["Produk"])
+validasi_dan_shared_clean(DB_HARGA, ["Produk", "Harga Jual", "Harga Modal"])
 # ==========================================
 
 # 1. DATA LOGIN AKUN
@@ -279,7 +279,7 @@ with tab1:
             st.session_state.icon_toast = "✅"
             st.rerun()
 
-# --- TAB 2: RIWAYAT & LAPORAN (🔥 UPGRADE: CHECKBOX MULTI-DELETE) ---
+# --- TAB 2: RIWAYAT & LAPORAN ---
 with tab2:
     st.subheader("Riwayat & Analisis Penjualan")
     df_transaksi = muat_data_transaksi()
@@ -327,21 +327,17 @@ with tab2:
                 
                 st.markdown("---")
                 
-                # SENSOR KOLOM DATA BERDASARKAN ROLE LOGIN
                 if st.session_state.user_role == "Admin":
                     kolom_kasir = ["Waktu", "Tanggal", "Platform", "Produk", "Harga Jual", "Jumlah", "Biaya Lain", "Total Omset"]
                     df_tampilan_tabel = df_filtered[kolom_kasir].copy()
+                    st.dataframe(df_tampilan_tabel, hide_index=True, use_container_width=True)
                 else:
+                    # 🔥 FIX: Suntik paksa kolom bolean 'Pilih' di urutan pertama agar checkbox WAJIB keluar
                     df_tampilan_tabel = df_filtered.copy()
-
-                # 🔥 KEAJAIBAN BARU: INTERAKTIF SELECTION TABEL TRANSAKSI (Hanya untuk Owner)
-                if st.session_state.user_role == "Owner":
-                    st.markdown("### ✏️ Koreksi / Hapus Transaksi (Centang Baris di Tabel)")
-                    
-                    # Tambah kolom index buat acuan hapus agar stabil
+                    df_tampilan_tabel.insert(0, "Pilih", False)
                     df_tampilan_tabel["ID Asli"] = df_tampilan_tabel.index
                     
-                    # Tampilkan data editor dengan checkbox selection bawaan Streamlit
+                    st.markdown("### ✏️ Koreksi / Hapus Transaksi (Centang Baris di Tabel)")
                     df_dengan_centang = st.data_editor(
                         df_tampilan_tabel,
                         hide_index=True,
@@ -353,7 +349,6 @@ with tab2:
                         key="editor_transaksi_centang"
                     )
                     
-                    # Logika eksekusi multi-delete berdasarkan baris yang dicentang
                     if "editor_transaksi_centang" in st.session_state and "edited_rows" in st.session_state.editor_transaksi_centang:
                         perubahan_centang = st.session_state.editor_transaksi_centang["edited_rows"]
                         list_id_hapus = [df_tampilan_tabel.iloc[int(idx)]["ID Asli"] for idx, status in perubahan_centang.items() if status.get("Pilih") == True]
@@ -368,12 +363,9 @@ with tab2:
                                 st.session_state.pesan_toast = f"💥 Sukses! Berhasil menghapus {len(list_id_hapus)} transaksi!"
                                 st.session_state.icon_toast = "🗑️"
                                 st.rerun()
-                else:
-                    # Tampilan kasir biasa tanpa kolom ID Asli & Checkbox
-                    st.dataframe(df_tampilan_tabel, hide_index=True, use_container_width=True)
                 
                 st.markdown("---")
-                csv_data = df_tampilan_tabel.to_csv(index=False).encode('utf-8')
+                csv_data = df_filtered.to_csv(index=False).encode('utf-8')
                 st.download_button(
                     label="📥 Download & Ekspor Laporan Penjualan (CSV)",
                     data=csv_data,
@@ -381,7 +373,7 @@ with tab2:
                     mime="text/csv",
                 )
 
-# --- TAB 3: MANAJEMEN PRODUK & HARGA (🔥 UPGRADE: CHECKBOX DELETE PRODUK) ---
+# --- TAB 3: MANAJEMEN PRODUK & HARGA ---
 with tab3:
     df_harga_aktif = muat_database_harga()
     if st.session_state.user_role == "Owner":
@@ -413,8 +405,8 @@ with tab3:
             if not MASTER_PRODUK_AKTIF:
                 st.info("Belum ada produk aktif yang bisa dihapus.")
             else:
-                # Membuat dataframe tabel produk khusus untuk dicentang hapus
-                df_hapus_prod = pd.DataFrame({"Produk": MASTER_PRODUK_AKTIF})
+                # 🔥 FIX: Suntik paksa kolom bolean 'Pilih' di depan list produk master agar checkbox keluar wajib
+                df_hapus_prod = pd.DataFrame({"Pilih": [False] * len(MASTER_PRODUK_AKTIF), "Produk": MASTER_PRODUK_AKTIF})
                 
                 df_hapus_prod_centang = st.data_editor(
                     df_hapus_prod,
@@ -427,49 +419,10 @@ with tab3:
                     key="editor_produk_hapus_centang"
                 )
                 
-                # Deteksi baris mana saja yang dicentang oleh owner
                 if "editor_produk_hapus_centang" in st.session_state and "edited_rows" in st.session_state.editor_produk_hapus_centang:
                     perubahan_prod = st.session_state.editor_produk_hapus_centang["edited_rows"]
                     list_prod_hapus = [df_hapus_prod.iloc[int(idx)]["Produk"] for idx, status in perubahan_prod.items() if status.get("Pilih") == True]
                     
                     if list_prod_hapus:
                         if st.button(f"❌ Hapus ({len(list_prod_hapus)}) Produk Tercentang", type="secondary", use_container_width=True):
-                            for p_nama in list_prod_hapus:
-                                hapus_produk_by_name(p_nama)
-                                
-                            st.session_state.pesan_toast = f"🗑️ Sukses! Berhasil membuang {len(list_prod_hapus)} menu produk!"
-                            st.session_state.icon_toast = "💥"
-                            st.rerun()
-        st.markdown("---")
-
-    st.markdown("## ⚙️ Update Harga Modal & Jual Pasar Hari Ini")
-    if not MASTER_PRODUK_AKTIF:
-        st.info("Belum ada produk terdaftar untuk diatur harganya.")
-    else:
-        st.info("💡 Klik langsung pada angka di tabel, ubah nilainya, lalu klik tombol simpan di bawah.")
-        
-        df_editor = st.data_editor(
-            df_harga_aktif, 
-            disabled=["Produk"], 
-            use_container_width=True,
-            key="editor_harga",
-            column_config={
-                "Harga Jual": st.column_config.NumberColumn("Harga Jual (Rp)", min_value=0, format="%d"),
-                "Harga Modal": st.column_config.NumberColumn("Harga Modal (Rp)", min_value=0, format="%d")
-            }
-        )
-        
-        if st.button("💾 Simpan Perubahan Harga Hari Ini", type="primary", use_container_width=True):
-            if "editor_harga" in st.session_state and "edited_rows" in st.session_state.editor_harga:
-                perubahan = st.session_state.editor_harga["edited_rows"]
-                for indeks_baris, kolom_berubah in perubahan.items():
-                    idx = int(indeks_baris)
-                    if "Harga Jual" in kolom_berubah:
-                        df_harga_aktif.at[idx, "Harga Jual"] = int(kolom_berubah["Harga Jual"])
-                    if "Harga Modal" in kolom_berubah:
-                        df_harga_aktif.at[idx, "Harga Modal"] = int(kolom_berubah["Harga Modal"])
-            
-            simpan_database_harga(df_harga_aktif)
-            st.session_state.pesan_toast = "🚀 Sukses! Kamu berhasil mengupdate modal dan harga jual pasar terbaru!"
-            st.session_state.icon_toast = "💾"
-            st.rerun()
+                            for p_nama in list_prod
