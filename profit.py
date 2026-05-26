@@ -332,7 +332,6 @@ with tab2:
                     df_tampilan_tabel = df_filtered[kolom_kasir].copy()
                     st.dataframe(df_tampilan_tabel, hide_index=True, use_container_width=True)
                 else:
-                    # 🔥 FIX: Suntik paksa kolom bolean 'Pilih' di urutan pertama agar checkbox WAJIB keluar
                     df_tampilan_tabel = df_filtered.copy()
                     df_tampilan_tabel.insert(0, "Pilih", False)
                     df_tampilan_tabel["ID Asli"] = df_tampilan_tabel.index
@@ -405,7 +404,6 @@ with tab3:
             if not MASTER_PRODUK_AKTIF:
                 st.info("Belum ada produk aktif yang bisa dihapus.")
             else:
-                # 🔥 FIX: Suntik paksa kolom bolean 'Pilih' di depan list produk master agar checkbox keluar wajib
                 df_hapus_prod = pd.DataFrame({"Pilih": [False] * len(MASTER_PRODUK_AKTIF), "Produk": MASTER_PRODUK_AKTIF})
                 
                 df_hapus_prod_centang = st.data_editor(
@@ -424,5 +422,44 @@ with tab3:
                     list_prod_hapus = [df_hapus_prod.iloc[int(idx)]["Produk"] for idx, status in perubahan_prod.items() if status.get("Pilih") == True]
                     
                     if list_prod_hapus:
+                        # 🔥 FIX: Di bawah ini sudah ditambahkan tanda titik dua (:) di akhir perintah looping!
                         if st.button(f"❌ Hapus ({len(list_prod_hapus)}) Produk Tercentang", type="secondary", use_container_width=True):
-                            for p_nama in list_prod
+                            for p_nama in list_prod_hapus:
+                                hapus_produk_by_name(p_nama)
+                                
+                            st.session_state.pesan_toast = f"🗑️ Sukses! Berhasil membuang {len(list_prod_hapus)} menu produk!"
+                            st.session_state.icon_toast = "💥"
+                            st.rerun()
+        st.markdown("---")
+
+    st.markdown("## ⚙️ Update Harga Modal & Jual Pasar Hari Ini")
+    if not MASTER_PRODUK_AKTIF:
+        st.info("Belum ada produk terdaftar untuk diatur harganya.")
+    else:
+        st.info("💡 Klik langsung pada angka di tabel, ubah nilainya, lalu klik tombol simpan di bawah.")
+        
+        df_editor = st.data_editor(
+            df_harga_aktif, 
+            disabled=["Produk"], 
+            use_container_width=True,
+            key="editor_harga",
+            column_config={
+                "Harga Jual": st.column_config.NumberColumn("Harga Jual (Rp)", min_value=0, format="%d"),
+                "Harga Modal": st.column_config.NumberColumn("Harga Modal (Rp)", min_value=0, format="%d")
+            }
+        )
+        
+        if st.button("💾 Simpan Perubahan Harga Hari Ini", type="primary", use_container_width=True):
+            if "editor_harga" in st.session_state and "edited_rows" in st.session_state.editor_harga:
+                perubahan = st.session_state.editor_harga["edited_rows"]
+                for indeks_baris, kolom_berubah in perubahan.items():
+                    idx = int(indeks_baris)
+                    if "Harga Jual" in kolom_berubah:
+                        df_harga_aktif.at[idx, "Harga Jual"] = int(kolom_berubah["Harga Jual"])
+                    if "Harga Modal" in kolom_berubah:
+                        df_harga_aktif.at[idx, "Harga Modal"] = int(kolom_berubah["Harga Modal"])
+            
+            simpan_database_harga(df_harga_aktif)
+            st.session_state.pesan_toast = "🚀 Sukses! Kamu berhasil mengupdate modal dan harga jual pasar terbaru!"
+            st.session_state.icon_toast = "💾"
+            st.rerun()
