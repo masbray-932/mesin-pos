@@ -1,442 +1,421 @@
+import json
 import streamlit as st
-import pandas as pd
-from datetime import datetime
 import os
+import bcrypt  # Sistem keamanan password standar industri
 
-# Pengaturan judul halaman web
-st.set_page_config(page_title="POS Multi-Marketplace & Manajemen Harga", page_icon="🏪", layout="wide")
+# ==================== SETTINGAN AWAL FOLDER GAMBAR ====================
+if not os.path.exists("img"):
+    os.makedirs("img")
 
-# Nama file database lokal
-DB_FILE = "database_transaksi.csv"
-DB_HARGA = "database_harga.csv"
-DB_MASTER_PRODUK = "database_master_produk.csv"
+# ==================== FUNGSI UTILITY KEAMANAN (BCRYPT) ====================
+def hash_password(password):
+    """Mengubah teks password menjadi kode hash bcrypt dengan salt otomatis."""
+    password_bytes = password.encode('utf-8')
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(password_bytes, salt)
+    return hashed.decode('utf-8')
 
-# ==========================================
-# 🔔 FITUR POP-UP TOAST QUEUE (MANAJEMEN ANTREAN NOTIFIKASI)
-# ==========================================
-# Cek apakah ada antrean pop-up yang belum ditampilkan setelah halaman di-refresh
-if "pesan_toast" in st.session_state and st.session_state.pesan_toast:
-    st.toast(st.session_state.pesan_toast, icon=st.session_state.get("icon_toast", "✅"))
-    # Kosongkan antrean agar tidak muncul berulang-ulang
-    st.session_state.pesan_toast = None
-    st.session_state.icon_toast = "✅"
-# ==========================================
+def check_password(password_input, password_database):
+    """Memverifikasi apakah password input cocok dengan password di database."""
+    return bcrypt.checkpw(password_input.encode('utf-8'), password_database.encode('utf-8'))
 
-# ==========================================
-# 🔥 PROTEKSI HARD RESET JIKA FILE CORRUPT
-# ==========================================
-def validasi_dan_bersihkan_file(nama_file, kolom_wajib):
-    if os.path.exists(nama_file):
-        try:
-            df = pd.read_csv(nama_file)
-            if df.empty or not all(k in df.columns for k in kolom_wajib):
-                os.remove(nama_file)
-        except Exception:
-            try:
-                os.remove(nama_file)
-            except Exception:
-                pass
-
-validasi_dan_bersihkan_file(DB_MASTER_PRODUK, ["Produk"])
-validasi_dan_bersihkan_file(DB_HARGA, ["Produk", "Harga Jual", "Harga Modal"])
-# ==========================================
-
-# 1. DATA LOGIN AKUN
-AKUN_USER = {
-    "owner": {"password": "owner123", "role": "Owner"},
-    "admin": {"password": "admin123", "role": "Admin"}
-}
-
-# 2. DAFTAR MASTER PRODUK BAWAAN (Otomatis dibuat jika sistem kosong)
-PRODUK_DEFAULT = [
-    "Ayam Kampung Omega", 
-    "Ayam Kampung Omega Grade A", 
-    "Ayam Negri", 
-    "Ayam Negri Omega", 
-    "Ayam Kampung Kuning", 
-    "Ayam Kampung Kuning Grade A", 
-    "Puyuh", 
-    "Bebek", 
-    "Bebek Asin", 
-    "Kampung Omega (30 butir)", 
-    "Kampung Omega Grade A (30 butir)"
-]
-
-# 3. DICTIONARY BIAYA ADMIN PER MARKETPLACE
-KONS_MARKETPLACE = {
-    "Shopee": {"persen": 12.50, "fix": 1250},
-    "Tokopedia": {"persen": 16.97, "fix": 0},
-    "TikTok Shop": {"persen": 8.00, "fix": 2000},
-    "Lazada": {"persen": 7.00, "fix": 1000},
-    "Offline / WA": {"persen": 0.00, "fix": 0}
-}
-
-# --- FUNGSI DETEKSI & MUAT DATABASE PRO LEVEL ---
-def muat_daftar_produk():
-    if os.path.exists(DB_MASTER_PRODUK):
-        try:
-            df = pd.read_csv(DB_MASTER_PRODUK)
-            if not df.empty and "Produk" in df.columns:
-                list_prod = df["Produk"].dropna().astype(str).str.strip().unique().tolist()
-                return [p for p in list_prod if p != ""]
-        except Exception:
-            pass
-    df = pd.DataFrame({"Produk": PRODUK_DEFAULT})
-    df.to_csv(DB_MASTER_PRODUK, index=False)
-    return PRODUK_DEFAULT
-
-def muat_database_harga():
-    daftar_produk_aktif = muat_daftar_produk()
-    if os.path.exists(DB_HARGA):
-        try:
-            df = pd.read_csv(DB_HARGA)
-            if not df.empty and "Produk" in df.columns:
-                df["Produk"] = df["Produk"].astype(str).str.strip()
-                df = df[df["Produk"].isin(daftar_produk_aktif)]
-                
-                missing_products = [p for p in daftar_produk_aktif if p not in df["Produk"].values]
-                if missing_products:
-                    new_rows = pd.DataFrame([{"Produk": p, "Harga Jual": 100000, "Harga Modal": 60000} for p in missing_products])
-                    df = pd.concat([df, new_rows], ignore_index=True)
-                    df.to_csv(DB_HARGA, index=False)
-                return df
-        except Exception:
-            pass
-    default_data = [{"Produk": p, "Harga Jual": 100000, "Harga Modal": 60000} for p in daftar_produk_aktif]
-    df = pd.DataFrame(default_data)
-    df.to_csv(DB_HARGA, index=False)
-    return df
-
-def simpan_database_harga(df_baru):
+# ==================== FUNGSI UTILITY DATA ====================
+def load_users():
     try:
-        df_baru.to_csv(DB_HARGA, index=False)
-    except Exception as e:
-        st.error(f"Gagal menyimpan harga: {e}")
+        with open("users.json", "r") as file:
+            return json.load(file)
+    except FileNotFoundError:
+        # Akun master admin otomatis dibuat dengan bcrypt
+        return {"admin": {"password": hash_password("123"), "role": "admin"}}
 
-def tambah_produk_baru(nama_baru, h_jual, h_modal):
-    nama_baru_clean = str(nama_baru).strip()
-    daftar_produk = muat_daftar_produk()
-    
-    daftar_produk_lower = [p.lower() for p in daftar_produk]
-    if nama_baru_clean.lower() in daftar_produk_lower:
-        return False, "Nama produk tersebut sudah terdaftar di sistem!"
-        
-    daftar_produk_baru = daftar_produk + [nama_baru_clean]
-    df_master = pd.DataFrame({"Produk": daftar_produk_baru})
-    df_master.to_csv(DB_MASTER_PRODUK, index=False)
-    
+def save_users(users):
+    with open("users.json", "w") as file:
+        json.dump(users, file, indent=4)
+
+def load_produk():
     try:
-        if os.path.exists(DB_HARGA):
-            df_harga = pd.read_csv(DB_HARGA)
-            df_harga["Produk"] = df_harga["Produk"].astype(str).str.strip()
-        else:
-            df_harga = pd.DataFrame(columns=["Produk", "Harga Jual", "Harga Modal"])
-    except Exception:
-        df_harga = pd.DataFrame(columns=["Produk", "Harga Jual", "Harga Modal"])
-        
-    df_harga = df_harga[df_harga["Produk"].str.lower() != nama_baru_clean.lower()]
-    row_baru = pd.DataFrame([{"Produk": nama_baru_clean, "Harga Jual": int(h_jual), "Harga Modal": int(h_modal)}])
-    df_harga = pd.concat([df_harga, row_baru], ignore_index=True)
-    df_harga.to_csv(DB_HARGA, index=False)
-    return True, f"Produk '{nama_baru_clean}' sukses terdaftar tunggal!"
+        with open("produk.json", "r") as file:
+            return json.load(file)
+    except FileNotFoundError:
+        return [
+            {"nama": "Kaos", "harga": 50000, "stok": 10, "foto": None},
+            {"nama": "Celana", "harga": 100000, "stok": 5, "foto": None},
+            {"nama": "Sepatu", "harga": 250000, "stok": 3, "foto": None}
+        ]
 
-def hapus_produk_by_name(nama_hapus):
-    nama_hapus_clean = str(nama_hapus).strip()
-    daftar_produk = muat_daftar_produk()
-    if nama_hapus_clean not in daftar_produk:
-        return False
-        
-    daftar_produk.remove(nama_hapus_clean)
-    df_master = pd.DataFrame({"Produk": daftar_produk})
-    df_master.to_csv(DB_MASTER_PRODUK, index=False)
-    
-    if os.path.exists(DB_HARGA):
-        try:
-            df_harga = pd.read_csv(DB_HARGA)
-            df_harga["Produk"] = df_harga["Produk"].astype(str).str.strip()
-            df_harga = df_harga[df_harga["Produk"].str.lower() != nama_hapus_clean.lower()]
-            df_harga.to_csv(DB_HARGA, index=False)
-        except Exception:
-            pass
-    return True
+def save_produk(produk):
+    with open("produk.json", "w") as file:
+        json.dump(produk, file, indent=4)
 
-# --- FUNGSI DATABASE TRANSAKSI LOKAL ---
-def muat_data_transaksi():
-    if os.path.exists(DB_FILE):
-        try:
-            return pd.read_csv(DB_FILE)
-        except Exception:
-            pass
-    return pd.DataFrame(columns=["Waktu", "Tanggal", "Platform", "Produk", "Harga Jual", "Harga Modal", "Jumlah", "Biaya Admin %", "Biaya Fix", "Biaya Lain", "Total Omset", "Total Profit"])
 
-def simpan_transaksi(platform, produk, harga_jual, harga_modal, jumlah, biaya_lain):
-    df = muat_data_transaksi()
-    waktu_sekarang = datetime.now()
-    tanggal = waktu_sekarang.strftime("%Y-%m-%d")
-    jam = waktu_sekarang.strftime("%H:%M:%S")
-    
-    admin_persen_rate = KONS_MARKETPLACE[platform]["persen"]
-    admin_fix_rate = KONS_MARKETPLACE[platform]["fix"]
-    
-    total_omset = harga_jual * jumlah
-    total_modal = harga_modal * jumlah
-    total_admin_persen = (admin_persen_rate / 100) * total_omset
-    total_biaya_lain = biaya_lain * jumlah
-    
-    total_pengeluaran = total_modal + total_admin_persen + admin_fix_rate + total_biaya_lain
-    total_profit = total_omset - total_pengeluaran
-    
-    data_baru = pd.DataFrame([{
-        "Waktu": jam, "Tanggal": tanggal, "Platform": platform, "Produk": produk,
-        "Harga Jual": harga_jual, "Harga Modal": harga_modal, "Jumlah": jumlah,
-        "Biaya Admin %": total_admin_persen, "Biaya Fix": admin_fix_rate, "Biaya Lain": total_biaya_lain,
-        "Total Omset": total_omset, "Total Profit": total_profit
-    }])
-    
-    df = pd.concat([df, data_baru], ignore_index=True)
-    df.to_csv(DB_FILE, index=False)
-
-def hapus_transaksi_by_index(index_yang_dihapus):
-    df = muat_data_transaksi()
-    if index_yang_dihapus in df.index:
-        df = df.drop(index_yang_dihapus)
-        df.to_csv(DB_FILE, index=False)
-        return True
-    return False
-
-# --- LOGIKA SISTEM LOGIN ---
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-    st.session_state.user_role = None
+# ==================== INISIALISASI SESSION STATE ====================
+if "login" not in st.session_state:
+    st.session_state.login = False
+if "username" not in st.session_state:
     st.session_state.username = ""
+if "role" not in st.session_state:
+    st.session_state.role = ""
 
-if not st.session_state.logged_in:
-    st.markdown("<h2 style='text-align: center;'>🔐 Login Sistem Kasir POS</h2>", unsafe_allow_html=True)
-    col_l1, col_l2, col_l3 = st.columns([1, 2, 1])
-    with col_l2:
-        with st.form("form_login"):
-            username_input = st.text_input("Username").strip().lower()
-            password_input = st.text_input("Password", type="password")
-            tombol_login = st.form_submit_button("Masuk ke Sistem", use_container_width=True)
+# Memastikan produk hanya di-load dari file JSON sekali saja di awal
+if "produk" not in st.session_state:
+    st.session_state.produk = load_produk()
+
+if "keranjang" not in st.session_state:
+    st.session_state.keranjang = []
+
+# ==================== SIDEBAR NAVIGATION ====================
+st.sidebar.title("Navigation")
+
+if not st.session_state.login:
+    menu = st.sidebar.selectbox("Menu Auth", ["Login", "Register"])
+else:
+    st.sidebar.write(f"Logged in as: **{st.session_state.username}** ({st.session_state.role})")
+    
+    list_menu = ["Belanja", "Keranjang & Checkout"]
+    if st.session_state.role == "admin":
+        list_menu.append("Admin Panel")
+        
+    menu = st.sidebar.radio("Pilih Halaman", list_menu)
+    
+    if st.sidebar.button("Logout"):
+        st.session_state.login = False
+        st.session_state.username = ""
+        st.session_state.role = ""
+        st.session_state.keranjang = [] 
+        st.rerun()
+
+# ==================== HALAMAN AUTH (BELUM LOGIN) ====================
+if not st.session_state.login:
+    if menu == "Register":
+        st.title("📝 Register Akun Baru")
+        reg_username = st.text_input("Username Baru", key="reg_user")
+        reg_password = st.text_input("Password Baru", type="password", key="reg_pass")
+        konfirmasi = st.text_input("Konfirmasi Password", type="password", key="reg_konf")
+
+        if st.button("Register"):
+            users = load_users()
+            if not reg_username:
+                st.error("Username tidak boleh kosong!")
+            elif reg_username in users:
+                st.error("Username sudah terdaftar!")
+            elif reg_password != konfirmasi:
+                st.error("Konfirmasi password tidak cocok!")
+            else:
+                users[reg_username] = {
+                    "password": hash_password(reg_password), 
+                    "role": "user"
+                }
+                save_users(users)
+                st.success("Register berhasil! Silakan pindah ke menu Login.")
+
+    elif menu == "Login":
+        st.title("🔐 Login Toko")
+        login_username = st.text_input("Username", key="log_user")
+        login_password = st.text_input("Password", type="password", key="log_pass")
+
+        if st.button("Login"):
+            users = load_users()
             
-            if tombol_login:
-                if username_input in AKUN_USER and AKUN_USER[username_input]["password"] == password_input:
-                    st.session_state.logged_in = True
-                    st.session_state.user_role = AKUN_USER[username_input]["role"]
-                    st.session_state.username = username_input
-                    st.success(f"🎉 Login Berhasil sebagai {st.session_state.user_role}!")
+            if login_username in users:
+                database_password_hash = users[login_username]["password"]
+                
+                # Memverifikasi kecocokan hash inputan vs database
+                if check_password(login_password, database_password_hash):
+                    st.session_state.login = True
+                    st.session_state.username = login_username
+                    st.session_state.role = users[login_username]["role"]
+                    st.success("Login Berhasil!")
                     st.rerun()
                 else:
-                    st.error("❌ Username atau Password salah, silakan cek kembali!")
-    st.stop()
-
-# --- AMBIL DATA MASTER PRODUK AKTIF ---
-MASTER_PRODUK_AKTIF = muat_daftar_produk()
-
-# Membuat Sidebar
-with st.sidebar:
-    st.markdown(f"### 👤 Akun Aktif")
-    st.write(f"**Username:** `{st.session_state.username}`")
-    st.info(f"**Akses Jaringan:** {st.session_state.user_role}")
-    st.markdown("---")
-    if st.button("🚪 Keluar / Logout", type="secondary", use_container_width=True):
-        st.session_state.logged_in = False
-        st.session_state.user_role = None
-        st.session_state.username = ""
-        st.rerun()
-
-st.title("🏪 MESIN POS MULTI-MARKETPLACE")
-st.write(f"Selamat bekerja, **{st.session_state.user_role}**! Data tersinkronisasi otomatis.")
-
-tab1, tab2, tab3 = st.tabs(["📥 Input Transaksi Baru", "📈 Riwayat & Laporan Penjualan", "⚙️ Kelola Manajemen Produk & Harga"])
-
-# --- TAB 1: INPUT TRANSAKSI ---
-with tab1:
-    st.subheader("Tambah Transaksi Baru")
-    if not MASTER_PRODUK_AKTIF:
-        st.warning("⚠️ Belum ada daftar produk di sistem.")
-    else:
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown("### 🛍️ Detail Penjualan")
-            platform_pilihan = st.selectbox("Pilih Platform Marketplace", options=list(KONS_MARKETPLACE.keys()))
-            nama_produk = st.selectbox("Nama Produk / SKU", options=MASTER_PRODUK_AKTIF)
-            
-            df_harga_terbaru = muat_database_harga()
-            info_produk = df_harga_terbaru[df_harga_terbaru["Produk"] == nama_produk].iloc[0]
-            harga_jual_terkunci = int(info_produk["Harga Jual"])
-            harga_modal_terkunci = int(info_produk["Harga Modal"])
-            
-            st.write(f"💵 **Harga Jual Hari Ini:** Rp {harga_jual_terkunci:,.0f}")
-            st.write(f"📉 **Harga Modal Hari Ini:** Rp {harga_modal_terkunci:,.0f}")
-            jumlah_terjual = st.number_input("Jumlah Terjual (pcs/pack)", min_value=1, value=1, key="jumlah")
-
-        with col2:
-            st.markdown("### 💸 Biaya Tambahan")
-            biaya_lainnya = st.number_input("Biaya Lain-lain per Produk (Rp)", min_value=0, value=2000, key="lain")
-            p_persen = KONS_MARKETPLACE[platform_pilihan]["persen"]
-            p_fix = KONS_MARKETPLACE[platform_pilihan]["fix"]
-            
-            st.info(f"""
-            **📋 Skema Potongan Admin Aktif ({platform_pilihan}):**
-            * Biaya Admin Persen: **{p_persen}%** dari total omset.
-            * Biaya Fix Transaksi: **Rp {p_fix:,.0f}** dipotong per transaksi.
-            """)
-
-        if st.button("💾 Simpan Transaksi Ke Database", type="primary", use_container_width=True):
-            simpan_transaksi(platform_pilihan, nama_produk, harga_jual_terkunci, harga_modal_terkunci, jumlah_terjual, biaya_lainnya)
-            
-            # 🔥 SUNTIKAN ANTRIAN TOAST TRANSAKSI SUKSES
-            st.session_state.pesan_toast = f"🎉 Kamu berhasil menginput transaksi {platform_pilihan} untuk '{nama_produk}'!"
-            st.session_state.icon_toast = "✅"
-            st.rerun()
-
-# --- TAB 2: RIWAYAT & LAPORAN ---
-with tab2:
-    st.subheader("Riwayat & Analisis Penjualan")
-    df_transaksi = muat_data_transaksi()
-    
-    if df_transaksi.empty:
-        st.info("Belum ada data transaksi yang disimpan.")
-    else:
-        col_f1, col_f2, col_f3 = st.columns(3)
-        with col_f1:
-            hari_ini = datetime.now().date()
-            rentang_tanggal = st.date_input("Pilih Rentang Tanggal Laporan", value=(hari_ini, hari_ini))
-        with col_f2:
-            opsi_filter_platform = ["Semua Platform"] + list(KONS_MARKETPLACE.keys())
-            platform_terpilih = st.selectbox("Filter Berdasarkan Platform", options=opsi_filter_platform)
-        with col_f3:
-            opsi_filter_produk = ["Semua Produk"] + MASTER_PRODUK_AKTIF
-            produk_terpilih = st.selectbox("Filter Berdasarkan Produk", options=opsi_filter_produk)
-        
-        if isinstance(rentang_tanggal, tuple) and len(rentang_tanggal) == 2:
-            tgl_mulai, tgl_akhir = rentang_tanggal
-            df_transaksi['Tanggal'] = pd.to_datetime(df_transaksi['Tanggal']).dt.date
-            df_filtered = df_transaksi[(df_transaksi["Tanggal"] >= tgl_mulai) & (df_transaksi["Tanggal"] <= tgl_akhir)]
-            
-            if platform_terpilih != "Semua Platform":
-                df_filtered = df_filtered[df_filtered["Platform"] == platform_terpilih]
-            if produk_terpilih != "Semua Produk":
-                df_filtered = df_filtered[df_filtered["Produk"] == produk_terpilih]
-                
-            if df_filtered.empty:
-                st.warning(f"Tidak ada transaksi yang cocok pada filter terpilih.")
+                    st.error("Username atau password salah")
             else:
-                total_omset = df_filtered["Total Omset"].sum()
-                total_profit = df_filtered["Total Profit"].sum()
-                total_barang_terjual = df_filtered["Jumlah"].sum()
-                
-                if st.session_state.user_role == "Owner":
-                    m1, m2, m3 = st.columns(3)
-                    m1.metric(label="Total Omset Terfilter", value=f"Rp {total_omset:,.0f}")
-                    m2.metric(label="Total Keuntungan Bersih (Profit)", value=f"Rp {total_profit:,.0f}")
-                    m3.metric(label="Total Produk Terjual", value=f"{total_barang_terjual} pcs")
-                else:
-                    m1, m2 = st.columns(2)
-                    m1.metric(label="Total Omset Terfilter", value=f"Rp {total_omset:,.0f}")
-                    m2.metric(label="Total Produk Terjual", value=f"{total_barang_terjual} pcs")
-                
-                st.markdown("---")
-                if st.session_state.user_role == "Owner":
-                    st.markdown("### ✏️ Koreksi / Hapus Transaksi")
-                    id_hapus = st.number_input("Masukkan ID baris data:", min_value=0, step=1, value=0)
-                    if st.button("❌ Hapus Baris Ini", type="secondary"):
-                        if id_hapus in df_filtered.index:
-                            if hapus_transaksi_by_index(id_hapus):
-                                # 🔥 SUNTIKAN ANTRIAN TOAST HAPUS DATA
-                                st.session_state.pesan_toast = f"💥 Sukses! Baris transaksi ID {id_hapus} berhasil dihapus!"
-                                st.session_state.icon_toast = "🗑️"
-                                st.rerun()
-                        else:
-                            st.error(f"ID {id_hapus} tidak ditemukan!")
-                    st.markdown("---")
-                
-                if st.session_state.user_role == "Admin":
-                    kolom_kasir = ["Waktu", "Tanggal", "Platform", "Produk", "Harga Jual", "Jumlah", "Biaya Lain", "Total Omset"]
-                    df_tampilan_tabel = df_filtered[kolom_kasir]
-                else:
-                    df_tampilan_tabel = df_filtered
-                
-                st.dataframe(df_tampilan_tabel, use_container_width=True)
-                
-                csv_data = df_tampilan_tabel.to_csv(index=False).encode('utf-8')
-                st.download_button(
-                    label="📥 Download & Ekspor Laporan Penjualan (CSV)",
-                    data=csv_data,
-                    file_name=f"laporan_pos_{st.session_state.user_role.lower()}.csv",
-                    mime="text/csv",
-                )
+                st.error("Username atau password salah")
 
-# --- TAB 3: MANAJEMEN PRODUK & HARGA ---
-with tab3:
-    df_harga_aktif = muat_database_harga()
-    if st.session_state.user_role == "Owner":
-        st.markdown("## 🛠️ Menu Manajemen Produk (Khusus Owner)")
-        col_add, col_del = st.columns(2)
+# ==================== HALAMAN TOKO (SUDAH LOGIN) ====================
+else:
+    # --- 1. HALAMAN BELANJA ---
+    if menu == "Belanja":
+        st.title("🛒 Toko Online Saya")
         
-        with col_add:
-            st.markdown("### ➕ Tambah Menu Produk Baru")
-            with st.form("form_tambah_produk", clear_on_submit=True):
-                input_nama_baru = st.text_input("Nama Produk Baru / SKU").strip()
-                input_harga_jual = st.number_input("Harga Jual Awal (Rp)", min_value=0, value=100000, step=1000)
-                input_harga_modal = st.number_input("Harga Modal Awal (Rp)", min_value=0, value=60000, step=1000)
-                tombol_submit_produk = st.form_submit_button("Tambahkan ke Sistem", use_container_width=True)
-                
-                if tombol_submit_produk:
-                    if input_nama_baru == "":
-                        st.error("Nama produk tidak boleh kosong!")
-                    else:
-                        sukses, pesan = tambah_produk_baru(input_nama_baru, input_harga_jual, input_harga_modal)
-                        if sukses:
-                            # 🔥 SUNTIKAN ANTRIAN TOAST TAMBAH PRODUK
-                            st.session_state.pesan_toast = f"📦 Sukses! Produk '{input_nama_baru}' berhasil terdaftar di sistem!"
-                            st.session_state.icon_toast = "📥"
+        # Fitur Pencarian Produk
+        search_query = st.text_input("🔍 Cari produk yang kamu inginkan...", placeholder="Ketik nama produk di sini...")
+
+        st.subheader("Daftar Produk Tersedia")
+
+        # Proses Filter Pencarian
+        if search_query:
+            produk_ditampilkan = [
+                p for p in st.session_state.produk 
+                if search_query.lower() in p["nama"].lower()
+            ]
+        else:
+            produk_ditampilkan = st.session_state.produk
+
+        if not produk_ditampilkan:
+            st.info(f"Produk dengan kata kunci '{search_query}' tidak ditemukan. Silakan cari produk lain!")
+        
+        # Render produk hasil saringan ke UI
+        for item in produk_ditampilkan:
+            jumlah_di_keranjang = sum(k["jumlah"] for k in st.session_state.keranjang if k["nama"] == item["nama"])
+            stok_tampilan = item["stok"] - jumlah_di_keranjang
+
+            col_foto, col_detail = st.columns([1, 2])
+
+            with col_foto:
+                if item.get("foto") and os.path.exists(item["foto"]):
+                    st.image(item["foto"], use_container_width=True)
+                else:
+                    st.image("https://via.placeholder.com/150?text=No+Image", use_container_width=True)
+
+            with col_detail:
+                st.write(f"### {item['nama']}")
+                st.write(f"Harga: **Rp{item['harga']}** | Stok Gudang: {item['stok']} *(Tersedia: {stok_tampilan})*")
+
+                # Key tombol dinamis berdasarkan nama produk (aman dari bug indeks)
+                clean_key = "".join(x for x in item["nama"] if x.isalnum())
+
+                if stok_tampilan > 0:
+                    if st.button(f"Tambah ke Keranjang ({item['nama']})", key=f"beli_{clean_key}"):
+                        ada_di_keranjang = False
+                        for k_item in st.session_state.keranjang:
+                            if k_item["nama"] == item["nama"]:
+                                k_item["jumlah"] += 1
+                                ada_di_keranjang = True
+                                break
+                        
+                        if not ada_di_keranjang:
+                            st.session_state.keranjang.append({
+                                "nama": item["nama"],
+                                "harga": item["harga"],
+                                "jumlah": 1
+                            })
+
+                        st.toast(f"{item['nama']} dimasukkan ke keranjang!")
+                        st.rerun()
+                else:
+                    st.warning("Stok Terbatas / Sudah Penuh di Keranjang")
+                    st.button(f"Beli {item['nama']}", disabled=True, key=f"habis_{clean_key}")
+            st.divider()
+
+    # --- 2. HALAMAN KERANJANG & CHECKOUT ---
+    elif menu == "Keranjang & Checkout":
+        st.title("🛍️ Keranjang Belanja Anda")
+
+        if len(st.session_state.keranjang) == 0:
+            st.info("Keranjang Anda masih kosong. Yuk belanja dulu!")
+        else:
+            total = 0
+            
+            col_h1, col_h2, col_h3, col_h4 = st.columns([3, 1, 1, 2])
+            col_h1.write("**Nama Barang**")
+            col_h2.write("**Aksi**")
+            col_h3.write("**Qty**")
+            col_h4.write("**Subtotal**")
+            st.divider()
+
+            for index, item in enumerate(list(st.session_state.keranjang)):
+                col1, col2, col3, col4 = st.columns([3, 1, 1, 2])
+
+                stok_asli_gudang = next((p["stok"] for p in st.session_state.produk if p["nama"] == item["nama"]), 0)
+
+                with col1:
+                    st.write(item["nama"])
+                    st.caption(f"Harga: Rp{item['harga']}")
+
+                with col2:
+                    if st.button("➖", key=f"minus_{index}"):
+                        if item["jumlah"] > 1:
+                            item["jumlah"] -= 1
+                        else:
+                            st.session_state.keranjang.pop(index)
+                        st.rerun()
+
+                with col3:
+                    st.write(f"**{item['jumlah']}**")
+
+                subtotal = item["harga"] * item["jumlah"]
+                total += subtotal
+
+                with col4:
+                    st.write(f"Rp{subtotal}")
+                    if st.button("➕", key=f"plus_{index}"):
+                        if item["jumlah"] < stok_asli_gudang:
+                            item["jumlah"] += 1
                             st.rerun()
                         else:
-                            st.error(pesan)
-                            
-        with col_del:
-            st.markdown("### 🗑️ Hapus Menu Produk")
-            if not MASTER_PRODUK_AKTIF:
-                st.info("Belum ada produk aktif yang bisa dihapus.")
-            else:
-                produk_mau_dihapus = st.selectbox("Pilih Produk yang Akan Dibuang", options=MASTER_PRODUK_AKTIF)
-                if st.button("❌ Hapus Produk Terpilih Selamanya", type="secondary", use_container_width=True):
-                    if hapus_produk_by_name(produk_mau_dihapus):
-                        # 🔥 SUNTIKAN ANTRIAN TOAST HAPUS PRODUK
-                        st.session_state.pesan_toast = f"🗑️ Sukses! Produk '{produk_mau_dihapus}' telah dihapus dari jualan!"
-                        st.session_state.icon_toast = "💥"
-                        st.rerun()
-        st.markdown("---")
+                            st.error("Tidak bisa menambah barang, stok di gudang tidak mencukupi!")
 
-    st.markdown("## ⚙️ Update Harga Modal & Jual Pasar Hari Ini")
-    st.info("💡 Klik langsung pada angka di tabel, ubah nilainya, lalu klik tombol simpan di bawah.")
-    
-    df_editor = st.data_editor(
-        df_harga_aktif, 
-        disabled=["Produk"], 
-        use_container_width=True,
-        key="editor_harga",
-        column_config={
-            "Harga Jual": st.column_config.NumberColumn("Harga Jual (Rp)", min_value=0, format="%d"),
-            "Harga Modal": st.column_config.NumberColumn("Harga Modal (Rp)", min_value=0, format="%d")
-        }
-    )
-    
-    if st.button("💾 Simpan Perubahan Harga Hari Ini", type="primary", use_container_width=True):
-        if "editor_harga" in st.session_state and "edited_rows" in st.session_state.editor_harga:
-            perubahan = st.session_state.editor_harga["edited_rows"]
-            for indeks_baris, kolom_berubah in perubahan.items():
-                idx = int(indeks_baris)
-                if "Harga Jual" in kolom_berubah:
-                    df_harga_aktif.at[idx, "Harga Jual"] = int(kolom_berubah["Harga Jual"])
-                if "Harga Modal" in kolom_berubah:
-                    df_harga_aktif.at[idx, "Harga Modal"] = int(kolom_berubah["Harga Modal"])
+                st.divider()
+
+            diskon = 0
+            if total >= 200000:
+                diskon = total * 0.1
+            total_akhir = total - diskon
+
+            st.write(f"### Total Kotor: Rp{total}")
+            if diskon > 0:
+                st.write(f"### 🔥 Diskon Promo (10%): -Rp{int(diskon)}")
+            st.write(f"## Total Akhir: Rp{int(total_akhir)}")
+
+            if st.button("Selesaikan Pembayaran (Checkout)", type="primary"):
+                gagal_checkout = False
+                
+                for k_item in st.session_state.keranjang:
+                    for p in st.session_state.produk:
+                        if p["nama"] == k_item["nama"]:
+                            if p["stok"] < k_item["jumlah"]:
+                                gagal_checkout = True
+                                st.error(f"Maaf, stok {p['nama']} tiba-tiba habis/berkurang. Silakan sesuaikan keranjang.")
+                
+                if not gagal_checkout:
+                    for k_item in st.session_state.keranjang:
+                        for p in st.session_state.produk:
+                            if p["nama"] == k_item["nama"]:
+                                p["stok"] -= k_item["jumlah"]
+                    
+                    save_produk(st.session_state.produk)
+
+                    with open("transaksi.txt", "a") as file:
+                        file.write(f"Pembeli: {st.session_state.username} | Total Akhir: Rp{int(total_akhir)}\n")
+
+                    st.session_state.keranjang = []
+                    st.success("Checkout Berhasil! Stok resmi dikurangi gudang dan struk disimpan ke transaksi.txt 🎉")
+                    st.balloons()
+                    st.rerun()
+
+    # --- 3. HALAMAN PANEL ADMIN ---
+    elif menu == "Admin Panel" and st.session_state.role == "admin":
+        st.title("⚙️ Admin Dashboard")
         
-        simpan_database_harga(df_harga_aktif)
+        tab1, tab2, tab3, tab4 = st.tabs(["➕ Tambah Produk", "✏️ Edit Stok", "🗑️ Hapus Menu Produk", "📝 Koreksi Transaksi"])
         
-        # 🔥 SUNTIKAN ANTRIAN TOAST UPDATE HARGA & MODAL
-        st.session_state.pesan_toast = "🚀 Sukses! Kamu berhasil mengupdate modal dan harga jual pasar terbaru!"
-        st.session_state.icon_toast = "💾"
-        st.rerun()
+        with tab1:
+            st.subheader("Tambah Produk Baru")
+            new_nama = st.text_input("Nama Produk")
+            new_harga = st.number_input("Harga (Rp)", min_value=0, step=1000)
+            new_stok = st.number_input("Jumlah Stok Awal", min_value=0, step=1)
+            
+            uploaded_file = st.file_uploader("Upload Foto Produk", type=["jpg", "jpeg", "png"])
+            
+            if st.button("Simpan Produk Baru"):
+                if new_nama:
+                    saved_image_path = None
+                    
+                    if uploaded_file is not None:
+                        file_extension = uploaded_file.name.split(".")[-1]
+                        clean_nama = "".join(x for x in new_nama if x.isalnum())
+                        saved_image_path = f"img/{clean_nama}.{file_extension}"
+                        
+                        with open(saved_image_path, "wb") as f:
+                            f.write(uploaded_file.getbuffer())
+                    
+                    st.session_state.produk.append({
+                        "nama": new_nama, 
+                        "harga": int(new_harga), 
+                        "stok": int(new_stok),
+                        "foto": saved_image_path
+                    })
+                    
+                    save_produk(st.session_state.produk)
+                    st.success(f"Produk {new_nama} berhasil ditambahkan!")
+                    st.rerun()
+                else:
+                    st.error("Nama produk tidak boleh kosong!")
+
+        with tab2:
+            st.subheader("Ubah Stok Produk")
+            list_nama_produk = [p["nama"] for p in st.session_state.produk]
+            
+            if list_nama_produk:
+                pilih_produk = st.selectbox("Pilih produk yang mau diedit", list_nama_produk)
+                
+                stok_sekarang = 0
+                for p in st.session_state.produk:
+                    if p["nama"] == pilih_produk:
+                        stok_sekarang = p["stok"]
+                        break
+                
+                stok_baru = st.number_input("Set Stok Baru", min_value=0, value=stok_sekarang, step=1)
+                
+                if st.button("Update Stok"):
+                    for p in st.session_state.produk:
+                        if p["nama"] == pilih_produk:
+                            p["stok"] = int(stok_baru)
+                            break
+                    
+                    save_produk(st.session_state.produk)
+                    st.success(f"Stok {pilih_produk} berhasil diubah menjadi {stok_baru}!")
+                    st.rerun()
+            else:
+                st.write("Belum ada produk di toko.")
+
+        # [UPGRADE CHECKBOX]: Tab Hapus Menu Produk (Ganti Dropdown ke Checkbox Multi-Delete)
+        with tab3:
+            st.subheader("🗑️ Hapus Menu Produk")
+
+            if st.session_state.produk:
+                st.write("Centang produk yang akan dibuang dari toko:")
+                
+                produk_dipilih = {}
+                for p in st.session_state.produk:
+                    label_produk = f"📦 {p['nama']} — (Harga: Rp{p['harga']} | Stok: {p['stok']})"
+                    produk_dipilih[p["nama"]] = st.checkbox(label_produk, key=f"del_prod_chk_{p['nama']}")
+                
+                st.divider()
+                list_nama_hapus = [nama for nama, dicentang in produk_dipilih.items() if dicentang]
+                
+                if list_nama_hapus:
+                    st.warning(f"Kamu memilih **{len(list_nama_hapus)}** produk untuk dihapus dari toko.")
+                    if st.button("❌ Hapus Produk Terpilih Selamanya", type="primary", key="btn_hapus_prod"):
+                        for p in st.session_state.produk:
+                            if p["nama"] in list_nama_hapus and p.get("foto") and os.path.exists(p["foto"]):
+                                try:
+                                    os.remove(p["foto"])
+                                except:
+                                    pass
+                        
+                        st.session_state.produk = [p for p in st.session_state.produk if p["nama"] not in list_nama_hapus]
+                        save_produk(st.session_state.produk)
+                        st.success(f"Produk terpilih berhasil dihapus!")
+                        st.rerun()
+                else:
+                    st.button("Hapus Produk Terpilih Selamanya", disabled=True, key="btn_prod_disabled")
+            else:
+                st.info("Tidak ada produk di toko yang bisa dihapus.")
+
+        # [UPGRADE CHECKBOX]: Tab Koreksi / Hapus Transaksi (Ganti Input Angka ID ke Checkbox Multi-Delete)
+        with tab4:
+            st.subheader("📝 Koreksi / Hapus Transaksi")
+
+            if os.path.exists("transaksi.txt"):
+                with open("transaksi.txt", "r") as file:
+                    baris_transaksi = file.readlines()
+                
+                baris_transaksi = [b for b in baris_transaksi if b.strip()]
+
+                if baris_transaksi:
+                    st.write("Centang baris transaksi yang ingin dihapus:")
+                    
+                    transaksi_dipilih = {}
+                    for idx, baris in enumerate(baris_transaksi):
+                        transaksi_dipilih[idx] = st.checkbox(f"{baris.strip()}", key=f"tx_chk_{idx}")
+                    
+                    st.divider()
+                    indeks_hapus = [idx for idx, dicentang in transaksi_dipilih.items() if dicentang]
+                    
+                    if indeks_hapus:
+                        st.warning(f"Kamu memilih **{len(indeks_hapus)}** baris transaksi untuk dihapus.")
+                        if st.button("🚨 Hapus Baris Terpilih", type="primary", key="btn_hapus_tx"):
+                            sisa_transaksi = [baris for idx, baris in enumerate(baris_transaksi) if idx not in indeks_hapus]
+                            
+                            with open("transaksi.txt", "w") as file:
+                                file.writelines(sisa_transaksi)
+                            
+                            st.success("Baris transaksi terpilih berhasil dihapus!")
+                            st.rerun()
+                    else:
+                        st.button("Hapus Baris Terpilih", disabled=True, key="btn_tx_disabled")
+                else:
+                    st.info("Belum ada data transaksi di dalam file.")
+            else:
+                st.info("File transaksi.txt belum terbentuk.")
