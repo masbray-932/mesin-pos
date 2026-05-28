@@ -70,6 +70,15 @@ KONS_MARKETPLACE = {
     "Offline / WA": {"persen": 0.00, "fix": 0}
 }
 
+# 🔥 4. PEMETAAN DAFTAR TOKO SESUAI MING-MASTERY REVISI ANTONY
+DAFTAR_TOKO_PLATFORM = {
+    "Shopee": ["Sinar Bintang Telur", "EGGKU", "Astra Telur", "Telur88"],
+    "Tokopedia": ["Sinar Bintang Telur", "SB Telur", "Astra Telur"],
+    "TikTok Shop": ["Utama"],
+    "Lazada": ["Utama"],
+    "Offline / WA": ["Toko Offline"]
+}
+
 # --- FUNGSI DETEKSI & MUAT DATABASE ---
 def muat_daftar_produk():
     if os.path.exists(DB_MASTER_PRODUK):
@@ -160,23 +169,26 @@ def hapus_produk_by_name(nama_hapus):
     return True
 
 def muat_data_transaksi():
+    kolom_wajib = ["Waktu", "Tanggal", "Platform", "Toko", "Produk", "Harga Jual", "Harga Modal", "Jumlah", "Biaya Admin %", "Biaya Fix", "Biaya Lain", "Total Omset", "Total Profit"]
     if os.path.exists(DB_FILE):
         try:
-            return pd.read_csv(DB_FILE)
+            df = pd.read_csv(DB_FILE)
+            # Jalankan auto-upgrade kolom jika file lama belum ada kolom 'Toko'
+            if "Toko" not in df.columns:
+                df["Toko"] = "Utama"
+                df.to_csv(DB_FILE, index=False)
+            return df
         except Exception:
             pass
-    return pd.DataFrame(columns=["Waktu", "Tanggal", "Platform", "Produk", "Harga Jual", "Harga Modal", "Jumlah", "Biaya Admin %", "Biaya Fix", "Biaya Lain", "Total Omset", "Total Profit"])
+    return pd.DataFrame(columns=kolom_wajib)
 
-# 🔥 UPGRADE: Fungsi simpan sekarang menerima tanggal inputan manual kasir
-def simpan_transaksi(platform, produk, harga_jual, harga_modal, jumlah, biaya_lain, tanggal_pilihan):
+# 🔥 FIX UPDATE: Fungsi sekarang ikut merekam parameter 'toko'
+def simpan_transaksi(platform, toko, produk, harga_jual, harga_modal, jumlah, biaya_lain, tanggal_pilihan):
     df = muat_data_transaksi()
     
-    # Jam tetap real-time WIB berdasarkan waktu simpan klik tombol
     waktu_utc = datetime.utcnow()
     waktu_jakarta = waktu_utc + timedelta(hours=7)
     jam = waktu_jakarta.strftime("%H:%M:%S")
-    
-    # Format tanggal dari inputan kalender manual kasir
     tanggal_str = tanggal_pilihan.strftime("%Y-%m-%d")
     
     admin_persen_rate = KONS_MARKETPLACE[platform]["persen"]
@@ -191,7 +203,7 @@ def simpan_transaksi(platform, produk, harga_jual, harga_modal, jumlah, biaya_la
     total_profit = total_omset - total_pengeluaran
     
     data_baru = pd.DataFrame([{
-        "Waktu": jam, "Tanggal": tanggal_str, "Platform": platform, "Produk": produk,
+        "Waktu": jam, "Tanggal": tanggal_str, "Platform": platform, "Toko": toko, "Produk": produk,
         "Harga Jual": harga_jual, "Harga Modal": harga_modal, "Jumlah": jumlah,
         "Biaya Admin %": total_admin_persen, "Biaya Fix": admin_fix_rate, "Biaya Lain": total_biaya_lain,
         "Total Omset": total_omset, "Total Profit": total_profit
@@ -277,7 +289,7 @@ tab1, tab2, tab3, tab4 = st.tabs([
     "🧮 Kalkulator Simulasi Profit"
 ])
 
-# --- TAB 1: INPUT TRANSAKSI (🔥 UPGRADE: TAMBAH TANGGAL MANUAL) ---
+# --- TAB 1: INPUT TRANSAKSI (🔥 UPGRADE: FITUR MULTI-TOKO) ---
 with tab1:
     st.subheader("Tambah Transaksi Baru")
     if not MASTER_PRODUK_AKTIF:
@@ -287,15 +299,17 @@ with tab1:
         with col1:
             st.markdown("### 🛍️ Detail Penjualan")
             
-            # Ambil acuan hari ini WIB
             waktu_utc_now = datetime.utcnow()
             waktu_jkt_now = waktu_utc_now + timedelta(hours=7)
             hari_ini_wib = waktu_jkt_now.date()
             
-            # 🔥 SUNTIKAN BARU: Kotak Input Tanggal Kalender Manual
             input_tanggal_manual = st.date_input("Pilih Tanggal Transaksi", value=hari_ini_wib, key="input_tgl")
-            
             platform_pilihan = st.selectbox("Pilih Platform Marketplace", options=list(KONS_MARKETPLACE.keys()))
+            
+            # 🔥 SUNTIKAN BARU: Dropdown dinamis memilih nama toko spesifik
+            list_toko_tersedia = DAFTAR_TOKO_PLATFORM[platform_pilihan]
+            toko_pilihan = st.selectbox("Pilih Cabang Toko Anda", options=list_toko_tersedia, key="pilih_toko_trx")
+            
             nama_produk = st.selectbox("Nama Produk / SKU", options=MASTER_PRODUK_AKTIF)
             
             df_harga_terbaru = muat_database_harga()
@@ -321,19 +335,18 @@ with tab1:
             p_fix = KONS_MARKETPLACE[platform_pilihan]["fix"]
             
             st.info(f"""
-            **📋 Skema Potongan Admin ({platform_pilihan}):**
+            **📋 Skema Potongan Admin ({platform_pilihan} - {toko_pilihan}):**
             * Biaya Admin Persen: **{p_persen}%** dari total omset.
             * Biaya Fix Transaksi: **Rp {p_fix:,.0f}** dipotong per transaksi.
             """)
 
         if st.button("💾 Simpan Transaksi Ke Database", type="primary", use_container_width=True):
-            # Mengirim data tanggal manual ke dalam fungsi simpan
-            simpan_transaksi(platform_pilihan, nama_produk, harga_jual_final, harga_modal_final, jumlah_terjual, biaya_lainnya, input_tanggal_manual)
-            st.session_state.pesan_toast = f"🎉 Sukses menginput transaksi tanggal {input_tanggal_manual.strftime('%d-%m-%Y')} untuk '{nama_produk}'!"
+            simpan_transaksi(platform_pilihan, toko_pilihan, nama_produk, harga_jual_final, harga_modal_final, jumlah_terjual, biaya_lainnya, input_tanggal_manual)
+            st.session_state.pesan_toast = f"🎉 Sukses menginput transaksi Toko [{toko_pilihan}] untuk '{nama_produk}'!"
             st.session_state.icon_toast = "✅"
             st.rerun()
 
-# --- TAB 2: RIWAYAT & LAPORAN ---
+# --- TAB 2: RIWAYAT & LAPORAN (🔥 UPGRADE: FILTER PER TOKO) ---
 with tab2:
     st.subheader("Riwayat & Analisis Penjualan")
     df_transaksi = muat_data_transaksi()
@@ -341,7 +354,8 @@ with tab2:
     if df_transaksi.empty:
         st.info("Belum ada data transaksi yang disimpan.")
     else:
-        col_f1, col_f2, col_f3 = st.columns(3)
+        # Menambah layout filter di bagian atas laporan
+        col_f1, col_f2, col_f2_b, col_f3 = st.columns(4)
         with col_f1:
             waktu_utc_now = datetime.utcnow()
             waktu_jkt_now = waktu_utc_now + timedelta(hours=7)
@@ -350,6 +364,10 @@ with tab2:
         with col_f2:
             opsi_filter_platform = ["Semua Platform"] + list(KONS_MARKETPLACE.keys())
             platform_terpilih = st.selectbox("Filter Berdasarkan Platform", options=opsi_filter_platform)
+        with col_f2_b:
+            # 🔥 SUNTIKAN BARU: Filter Toko dinamis berdasarkan database transaksi yang ada
+            list_toko_filter = ["Semua Cabang Toko"] + sorted(df_transaksi["Toko"].dropna().unique().tolist())
+            toko_terpilih = st.selectbox("Filter Berdasarkan Toko Spesifik", options=list_toko_filter)
         with col_f3:
             opsi_filter_produk = ["Semua Produk"] + MASTER_PRODUK_AKTIF
             produk_terpilih = st.selectbox("Filter Berdasarkan Produk", options=opsi_filter_produk)
@@ -361,6 +379,8 @@ with tab2:
             
             if platform_terpilih != "Semua Platform":
                 df_filtered = df_filtered[df_filtered["Platform"] == platform_terpilih]
+            if toko_terpilih != "Semua Cabang Toko":
+                df_filtered = df_filtered[df_filtered["Toko"] == toko_terpilih]
             if produk_terpilih != "Semua Produk":
                 df_filtered = df_filtered[df_filtered["Produk"] == produk_terpilih]
                 
@@ -384,7 +404,7 @@ with tab2:
                 st.markdown("---")
                 
                 if st.session_state.user_role == "Admin":
-                    kolom_kasir = ["Waktu", "Tanggal", "Platform", "Produk", "Harga Jual", "Jumlah", "Biaya Lain", "Total Omset"]
+                    kolom_kasir = ["Waktu", "Tanggal", "Platform", "Toko", "Produk", "Harga Jual", "Jumlah", "Biaya Lain", "Total Omset"]
                     df_tampilan_tabel = df_filtered[kolom_kasir].copy()
                     st.dataframe(df_tampilan_tabel, hide_index=True, use_container_width=True)
                 else:
