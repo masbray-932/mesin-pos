@@ -167,14 +167,17 @@ def muat_data_transaksi():
             pass
     return pd.DataFrame(columns=["Waktu", "Tanggal", "Platform", "Produk", "Harga Jual", "Harga Modal", "Jumlah", "Biaya Admin %", "Biaya Fix", "Biaya Lain", "Total Omset", "Total Profit"])
 
-def simpan_transaksi(platform, produk, harga_jual, harga_modal, jumlah, biaya_lain):
+# 🔥 UPGRADE: Fungsi simpan sekarang menerima tanggal inputan manual kasir
+def simpan_transaksi(platform, produk, harga_jual, harga_modal, jumlah, biaya_lain, tanggal_pilihan):
     df = muat_data_transaksi()
     
+    # Jam tetap real-time WIB berdasarkan waktu simpan klik tombol
     waktu_utc = datetime.utcnow()
     waktu_jakarta = waktu_utc + timedelta(hours=7)
-        
-    tanggal = waktu_jakarta.strftime("%Y-%m-%d")
     jam = waktu_jakarta.strftime("%H:%M:%S")
+    
+    # Format tanggal dari inputan kalender manual kasir
+    tanggal_str = tanggal_pilihan.strftime("%Y-%m-%d")
     
     admin_persen_rate = KONS_MARKETPLACE[platform]["persen"]
     admin_fix_rate = KONS_MARKETPLACE[platform]["fix"]
@@ -188,7 +191,7 @@ def simpan_transaksi(platform, produk, harga_jual, harga_modal, jumlah, biaya_la
     total_profit = total_omset - total_pengeluaran
     
     data_baru = pd.DataFrame([{
-        "Waktu": jam, "Tanggal": tanggal, "Platform": platform, "Produk": produk,
+        "Waktu": jam, "Tanggal": tanggal_str, "Platform": platform, "Produk": produk,
         "Harga Jual": harga_jual, "Harga Modal": harga_modal, "Jumlah": jumlah,
         "Biaya Admin %": total_admin_persen, "Biaya Fix": admin_fix_rate, "Biaya Lain": total_biaya_lain,
         "Total Omset": total_omset, "Total Profit": total_profit
@@ -274,7 +277,7 @@ tab1, tab2, tab3, tab4 = st.tabs([
     "🧮 Kalkulator Simulasi Profit"
 ])
 
-# --- TAB 1: INPUT TRANSAKSI ---
+# --- TAB 1: INPUT TRANSAKSI (🔥 UPGRADE: TAMBAH TANGGAL MANUAL) ---
 with tab1:
     st.subheader("Tambah Transaksi Baru")
     if not MASTER_PRODUK_AKTIF:
@@ -283,6 +286,15 @@ with tab1:
         col1, col2 = st.columns(2)
         with col1:
             st.markdown("### 🛍️ Detail Penjualan")
+            
+            # Ambil acuan hari ini WIB
+            waktu_utc_now = datetime.utcnow()
+            waktu_jkt_now = waktu_utc_now + timedelta(hours=7)
+            hari_ini_wib = waktu_jkt_now.date()
+            
+            # 🔥 SUNTIKAN BARU: Kotak Input Tanggal Kalender Manual
+            input_tanggal_manual = st.date_input("Pilih Tanggal Transaksi", value=hari_ini_wib, key="input_tgl")
+            
             platform_pilihan = st.selectbox("Pilih Platform Marketplace", options=list(KONS_MARKETPLACE.keys()))
             nama_produk = st.selectbox("Nama Produk / SKU", options=MASTER_PRODUK_AKTIF)
             
@@ -315,8 +327,9 @@ with tab1:
             """)
 
         if st.button("💾 Simpan Transaksi Ke Database", type="primary", use_container_width=True):
-            simpan_transaksi(platform_pilihan, nama_produk, harga_jual_final, harga_modal_final, jumlah_terjual, biaya_lainnya)
-            st.session_state.pesan_toast = f"🎉 Kamu berhasil menginput transaksi {platform_pilihan} untuk '{nama_produk}'!"
+            # Mengirim data tanggal manual ke dalam fungsi simpan
+            simpan_transaksi(platform_pilihan, nama_produk, harga_jual_final, harga_modal_final, jumlah_terjual, biaya_lainnya, input_tanggal_manual)
+            st.session_state.pesan_toast = f"🎉 Sukses menginput transaksi tanggal {input_tanggal_manual.strftime('%d-%m-%Y')} untuk '{nama_produk}'!"
             st.session_state.icon_toast = "✅"
             st.rerun()
 
@@ -460,7 +473,7 @@ with tab3:
                     key="editor_produk_hapus_centang"
                 )
                 
-                if "editor_produk_hapus_prod_centang" in st.session_state and "edited_rows" in st.session_state.editor_produk_hapus_centang:
+                if "editor_produk_hapus_centang" in st.session_state and "edited_rows" in st.session_state.editor_produk_hapus_centang:
                     perubahan_prod = st.session_state.editor_produk_hapus_centang["edited_rows"]
                     list_prod_hapus = [df_hapus_prod.iloc[int(idx)]["Produk"] for idx, status in perubahan_prod.items() if status.get("Pilih") == True]
                     
@@ -506,7 +519,7 @@ with tab3:
             st.session_state.icon_toast = "💾"
             st.rerun()
 
-# --- TAB 4: KALKULATOR SIMULASI PROFIT MASSAL (🔥 REVISI: TANPA ADMIN FIX) ---
+# --- TAB 4: KALKULATOR SIMULASI PROFIT MASSAL ---
 with tab4:
     st.subheader("🧮 Tabel Simulasi Profit Massal Semua Produk")
     st.write("Pilih marketplace target terlebih dahulu, lalu edit parameter angka langsung di dalam tabel untuk melihat simulasi profit secara instan!")
@@ -515,14 +528,11 @@ with tab4:
         st.info("Belum ada produk aktif untuk disimulasikan.")
     else:
         platform_calc = st.selectbox("Target Platform Marketplace", options=list(KONS_MARKETPLACE.keys()), key="tab4_plat")
-        
         admin_persen_def = KONS_MARKETPLACE[platform_calc]["persen"]
-        
         st.info(f"💡 Kolom **Biaya Admin %** otomatis terisi standar {platform_calc} ({admin_persen_def}%). Kolom **Harga Modal** dikunci agar sinkron dengan manajemen harga!")
 
         df_base_harga = muat_database_harga()
         
-        # 🔥 FIX: Menghapus total kolom "Admin Fix (Rp)" dari dataframe rancangan awal
         df_simulasi = pd.DataFrame()
         df_simulasi["Produk"] = df_base_harga["Produk"]
         df_simulasi["Harga Jual (Rp)"] = df_base_harga["Harga Jual"]
@@ -563,7 +573,6 @@ with tab4:
 
         st.markdown("### 📊 Live Hasil Perhitungan Profit Bersih")
         
-        # 🔥 FIX: Kalkulasi matematika murni tanpa memasukkan potongan biaya admin fix item
         omset_kotor = df_hasil_edit["Harga Jual (Rp)"] * df_hasil_edit["Qty (Pcs)"]
         biaya_admin_total = (df_hasil_edit["Admin (%)"] / 100) * omset_kotor
         biaya_packing_total = df_hasil_edit["Packing (Rp)"] * df_hasil_edit["Qty (Pcs)"]
