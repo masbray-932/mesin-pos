@@ -3,14 +3,6 @@ import pandas as pd
 from datetime import datetime
 import os
 
-# 🔥 IMPORT CONTROLLER UNTUK MENGUNCI COOKIES BROWSER
-# Catatan: Streamlit akan otomatis mendownload library ini saat dideploy
-try:
-    from streamlit_cookies_controller import CookieController
-    controller = CookieController()
-except Exception:
-    controller = None
-
 # Pengaturan judul halaman web
 st.set_page_config(page_title="POS Multi-Marketplace & Manajemen Harga", page_icon="🏪", layout="wide")
 
@@ -18,6 +10,7 @@ st.set_page_config(page_title="POS Multi-Marketplace & Manajemen Harga", page_ic
 DB_FILE = "database_transaksi.csv"
 DB_HARGA = "database_harga.csv"
 DB_MASTER_PRODUK = "database_master_produk.csv"
+DB_SESSION = "database_session.txt"  # 🔥 File rahasia pengunci login permanen
 
 # ==========================================
 # 🔔 FITUR POP-UP TOAST QUEUE
@@ -202,21 +195,26 @@ def simpan_transaksi(platform, produk, harga_jual, harga_modal, jumlah, biaya_la
     df.to_csv(DB_FILE, index=False)
 
 # ==========================================
-# 🔐 LOGIKA SISTEM LOGIN ANTI-REFRESH COOKIES
+# 🔐 LOGIKA SISTEM LOGIN FILE-LOCK PERMANEN
 # ==========================================
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.user_role = None
     st.session_state.username = ""
 
-# Baca data dari memori gembok browser jika controller aktif
-if controller and not st.session_state.logged_in:
-    cookie_user = controller.get("saved_username")
-    cookie_role = controller.get("saved_role")
-    if cookie_user and cookie_role:
-        st.session_state.logged_in = True
-        st.session_state.username = cookie_user
-        st.session_state.user_role = cookie_role
+# 🔥 AMBIL SESSION LANGSUNG DARI FILE FISIK (ANTI-AMNESIA)
+if not st.session_state.logged_in and os.path.exists(DB_SESSION):
+    try:
+        with open(DB_SESSION, "r") as f:
+            isi_file = f.read().strip().split(",")
+            if len(isi_file) == 2:
+                saved_user, saved_role = isi_file
+                if saved_user in AKUN_USER:
+                    st.session_state.logged_in = True
+                    st.session_state.username = saved_user
+                    st.session_state.user_role = saved_role
+    except Exception:
+        pass
 
 if not st.session_state.logged_in:
     st.markdown("<h2 style='text-align: center;'>🔐 Login Sistem Kasir POS</h2>", unsafe_allow_html=True)
@@ -225,6 +223,9 @@ if not st.session_state.logged_in:
         with st.form("form_login"):
             username_input = st.text_input("Username").strip().lower()
             password_input = st.text_input("Password", type="password")
+            
+            # 🔥 SAKLAR GEMBOK PERMANEN
+            tetap_login = st.checkbox("Kunci Akun di Perangkat Ini (Ingat Saya / Auto-Login)", value=True)
             tombol_login = st.form_submit_button("Masuk ke Sistem", use_container_width=True)
             
             if tombol_login:
@@ -233,10 +234,10 @@ if not st.session_state.logged_in:
                     st.session_state.user_role = AKUN_USER[username_input]["role"]
                     st.session_state.username = username_input
                     
-                    # 🔥 KUNCI PINTU GERBANG DI COOKIES BROWSER
-                    if controller:
-                        controller.set("saved_username", username_input)
-                        controller.set("saved_role", AKUN_USER[username_input]["role"])
+                    # 🔥 JIKA DICENTANG, KUNCI PERMANEN KE FILE TEKS SERVER
+                    if tetap_login:
+                        with open(DB_SESSION, "w") as f:
+                            f.write(f"{username_input},{AKUN_USER[username_input]['role']}")
                         
                     st.success(f"🎉 Login Berhasil sebagai {st.session_state.user_role}!")
                     st.rerun()
@@ -254,11 +255,13 @@ with st.sidebar:
     st.info(f"**Akses Jaringan:** {st.session_state.user_role}")
     st.markdown("---")
     
-    # 🔥 JIKA KLIK LOGOUT, HANCURKAN SEMUA MEMORI COOKIES BROWSER
+    # 🔥 JIKA LOGOUT, HAPUS FILE KUNCI AGAR KASIR BISA PINDAH AKUN
     if st.button("🚪 Keluar / Logout", type="secondary", use_container_width=True):
-        if controller:
-            controller.remove("saved_username")
-            controller.remove("saved_role")
+        if os.path.exists(DB_SESSION):
+            try:
+                os.remove(DB_SESSION)
+            except Exception:
+                pass
         st.session_state.logged_in = False
         st.session_state.user_role = None
         st.session_state.username = ""
