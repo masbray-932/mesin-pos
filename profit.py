@@ -3,6 +3,14 @@ import pandas as pd
 from datetime import datetime
 import os
 
+# 🔥 IMPORT CONTROLLER UNTUK MENGUNCI COOKIES BROWSER
+# Catatan: Streamlit akan otomatis mendownload library ini saat dideploy
+try:
+    from streamlit_cookies_controller import CookieController
+    controller = CookieController()
+except Exception:
+    controller = None
+
 # Pengaturan judul halaman web
 st.set_page_config(page_title="POS Multi-Marketplace & Manajemen Harga", page_icon="🏪", layout="wide")
 
@@ -12,7 +20,7 @@ DB_HARGA = "database_harga.csv"
 DB_MASTER_PRODUK = "database_master_produk.csv"
 
 # ==========================================
-# 🔔 FITUR POP-UP TOAST QUEUE (MANAJEMEN ANTREAN NOTIFIKASI)
+# 🔔 FITUR POP-UP TOAST QUEUE
 # ==========================================
 if "pesan_toast" in st.session_state and st.session_state.pesan_toast:
     st.toast(st.session_state.pesan_toast, icon=st.session_state.get("icon_toast", "✅"))
@@ -45,7 +53,7 @@ AKUN_USER = {
     "admin": {"password": "admin123", "role": "Admin"}
 }
 
-# 2. DAFTAR MASTER PRODUK BAWAAN (Otomatis dibuat jika sistem kosong)
+# 2. DAFTAR MASTER PRODUK BAWAAN
 PRODUK_DEFAULT = [
     "Ayam Kampung Omega", 
     "Ayam Kampung Omega Grade A", 
@@ -69,7 +77,7 @@ KONS_MARKETPLACE = {
     "Offline / WA": {"persen": 0.00, "fix": 0}
 }
 
-# --- FUNGSI DETEKSI & MUAT DATABASE PRO LEVEL ---
+# --- FUNGSI DETEKSI & MUAT DATABASE ---
 def muat_daftar_produk():
     if os.path.exists(DB_MASTER_PRODUK):
         try:
@@ -158,7 +166,6 @@ def hapus_produk_by_name(nama_hapus):
             pass
     return True
 
-# --- FUNGSI DATABASE TRANSAKSI LOKAL ---
 def muat_data_transaksi():
     if os.path.exists(DB_FILE):
         try:
@@ -194,11 +201,22 @@ def simpan_transaksi(platform, produk, harga_jual, harga_modal, jumlah, biaya_la
     df = pd.concat([df, data_baru], ignore_index=True)
     df.to_csv(DB_FILE, index=False)
 
-# --- LOGIKA SISTEM LOGIN ---
+# ==========================================
+# 🔐 LOGIKA SISTEM LOGIN ANTI-REFRESH COOKIES
+# ==========================================
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.user_role = None
     st.session_state.username = ""
+
+# Baca data dari memori gembok browser jika controller aktif
+if controller and not st.session_state.logged_in:
+    cookie_user = controller.get("saved_username")
+    cookie_role = controller.get("saved_role")
+    if cookie_user and cookie_role:
+        st.session_state.logged_in = True
+        st.session_state.username = cookie_user
+        st.session_state.user_role = cookie_role
 
 if not st.session_state.logged_in:
     st.markdown("<h2 style='text-align: center;'>🔐 Login Sistem Kasir POS</h2>", unsafe_allow_html=True)
@@ -214,6 +232,12 @@ if not st.session_state.logged_in:
                     st.session_state.logged_in = True
                     st.session_state.user_role = AKUN_USER[username_input]["role"]
                     st.session_state.username = username_input
+                    
+                    # 🔥 KUNCI PINTU GERBANG DI COOKIES BROWSER
+                    if controller:
+                        controller.set("saved_username", username_input)
+                        controller.set("saved_role", AKUN_USER[username_input]["role"])
+                        
                     st.success(f"🎉 Login Berhasil sebagai {st.session_state.user_role}!")
                     st.rerun()
                 else:
@@ -229,7 +253,12 @@ with st.sidebar:
     st.write(f"**Username:** `{st.session_state.username}`")
     st.info(f"**Akses Jaringan:** {st.session_state.user_role}")
     st.markdown("---")
+    
+    # 🔥 JIKA KLIK LOGOUT, HANCURKAN SEMUA MEMORI COOKIES BROWSER
     if st.button("🚪 Keluar / Logout", type="secondary", use_container_width=True):
+        if controller:
+            controller.remove("saved_username")
+            controller.remove("saved_role")
         st.session_state.logged_in = False
         st.session_state.user_role = None
         st.session_state.username = ""
@@ -240,7 +269,7 @@ st.write(f"Selamat bekerja, **{st.session_state.user_role}**! Data tersinkronisa
 
 tab1, tab2, tab3 = st.tabs(["📥 Input Transaksi Baru", "📈 Riwayat & Laporan Penjualan", "⚙️ Kelola Manajemen Produk & Harga"])
 
-# --- TAB 1: INPUT TRANSAKSI (🔥 REVISI FIX: MODAL TETAP LOCK, JUAL BISA EDIT) ---
+# --- TAB 1: INPUT TRANSAKSI ---
 with tab1:
     st.subheader("Tambah Transaksi Baru")
     if not MASTER_PRODUK_AKTIF:
@@ -252,19 +281,16 @@ with tab1:
             platform_pilihan = st.selectbox("Pilih Platform Marketplace", options=list(KONS_MARKETPLACE.keys()))
             nama_produk = st.selectbox("Nama Produk / SKU", options=MASTER_PRODUK_AKTIF)
             
-            # Ambil acuan harga harian dari database lokal
             df_harga_terbaru = muat_database_harga()
             info_produk = df_harga_terbaru[df_harga_terbaru["Produk"] == nama_produk].iloc[0]
             harga_jual_default = int(info_produk["Harga Jual"])
-            harga_modal_final = int(info_produk["Harga Modal"]) # Modal dikunci di sini untuk semua platform
+            harga_modal_final = int(info_produk["Harga Modal"])
             
-            # SAKLAR FILTER PENGATUR HARGA JUAL
             if platform_pilihan == "Offline / WA":
-                st.info("💡 Mode Offline Aktif: Kamu bebas mengubah angka harga jual khusus di bawah ini!")
+                st.info("💡 Mode Offline Active: Kamu bebas mengubah angka harga jual khusus di bawah ini!")
                 harga_jual_final = st.number_input("Harga Jual Khusus (Rp)", min_value=0, value=harga_jual_default, step=1000)
                 st.write(f"📉 **Harga Modal Terkunci (Sistem):** Rp {harga_modal_final:,.0f}")
             else:
-                # Harga jual dan modal terkunci mati jika marketplace online
                 harga_jual_final = harga_jual_default
                 st.write(f"💵 **Harga Jual Terkunci ({platform_pilihan}):** Rp {harga_jual_final:,.0f}")
                 st.write(f"📉 **Harga Modal Terkunci ({platform_pilihan}):** Rp {harga_modal_final:,.0f}")
@@ -273,12 +299,12 @@ with tab1:
 
         with col2:
             st.markdown("### 💸 Biaya Tambahan")
-            biaya_lainnya = st.number_input("Biaya Lain-lain per Produk (Rp)", min_value=0, value=2000, key="lain")
+            biaya_lainnya = st.number_input("Biaya Lain-lain per Produk (Rp)", min_value=0, value=0, key="lain")
             p_persen = KONS_MARKETPLACE[platform_pilihan]["persen"]
             p_fix = KONS_MARKETPLACE[platform_pilihan]["fix"]
             
             st.info(f"""
-            **📋 Skema Potongan Admin Admin ({platform_pilihan}):**
+            **📋 Skema Potongan Admin ({platform_pilihan}):**
             * Biaya Admin Persen: **{p_persen}%** dari total omset.
             * Biaya Fix Transaksi: **Rp {p_fix:,.0f}** dipotong per transaksi.
             """)
