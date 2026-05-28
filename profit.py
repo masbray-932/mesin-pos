@@ -351,102 +351,65 @@ with tab2:
     if df_transaksi.empty:
         st.info("Belum ada data transaksi yang disimpan.")
     else:
+        # Panel Filter
         col_f1, col_f2, col_f2_b, col_f3 = st.columns(4)
         with col_f1:
-            waktu_utc_now = datetime.utcnow()
-            waktu_jkt_now = waktu_utc_now + timedelta(hours=7)
-            hari_ini = waktu_jkt_now.date()
-            rentang_tanggal = st.date_input("Pilih Rentang Tanggal Laporan", value=(hari_ini, hari_ini))
+            waktu_jkt = datetime.utcnow() + timedelta(hours=7)
+            rentang_tanggal = st.date_input("Pilih Rentang Tanggal", value=(waktu_jkt.date(), waktu_jkt.date()))
         with col_f2:
-            opsi_filter_platform = ["Semua Platform"] + list(KONS_MARKETPLACE.keys())
-            platform_terpilih = st.selectbox("Filter Berdasarkan Platform", options=opsi_filter_platform)
+            platform_terpilih = st.selectbox("Filter Platform", options=["Semua Platform"] + list(KONS_MARKETPLACE.keys()))
         with col_f2_b:
-            list_toko_filter = ["Semua Cabang Toko"] + sorted(df_transaksi["Toko"].dropna().unique().tolist())
-            toko_terpilih = st.selectbox("Filter Berdasarkan Toko Spesifik", options=list_toko_filter)
+            list_toko = ["Semua Cabang Toko"] + sorted(df_transaksi["Toko"].dropna().unique().tolist())
+            toko_terpilih = st.selectbox("Filter Toko", options=list_toko)
         with col_f3:
-            opsi_filter_produk = ["Semua Produk"] + MASTER_PRODUK_AKTIF
-            produk_terpilih = st.selectbox("Filter Berdasarkan Produk", options=opsi_filter_produk)
+            produk_terpilih = st.selectbox("Filter Produk", options=["Semua Produk"] + MASTER_PRODUK_AKTIF)
         
+        # Filter Data
         if isinstance(rentang_tanggal, tuple) and len(rentang_tanggal) == 2:
             tgl_mulai, tgl_akhir = rentang_tanggal
             df_transaksi['Tanggal'] = pd.to_datetime(df_transaksi['Tanggal']).dt.date
             df_filtered = df_transaksi[(df_transaksi["Tanggal"] >= tgl_mulai) & (df_transaksi["Tanggal"] <= tgl_akhir)].copy()
-            
-            if platform_terpilih != "Semua Platform":
-                df_filtered = df_filtered[df_filtered["Platform"] == platform_terpilih]
-            if toko_terpilih != "Semua Cabang Toko":
-                df_filtered = df_filtered[df_filtered["Toko"] == toko_terpilih]
-            if produk_terpilih != "Semua Produk":
-                df_filtered = df_filtered[df_filtered["Produk"] == produk_terpilih]
+            if platform_terpilih != "Semua Platform": df_filtered = df_filtered[df_filtered["Platform"] == platform_terpilih]
+            if toko_terpilih != "Semua Cabang Toko": df_filtered = df_filtered[df_filtered["Toko"] == toko_terpilih]
+            if produk_terpilih != "Semua Produk": df_filtered = df_filtered[df_filtered["Produk"] == produk_terpilih]
                 
             if df_filtered.empty:
-                st.warning(f"Tidak ada transaksi yang cocok pada filter terpilih.")
+                st.warning("Data tidak ditemukan.")
             else:
-                total_omset = df_filtered["Total Omset"].sum()
-                total_profit = df_filtered["Total Profit"].sum()
-                # 🔥 FIX: Di sini tadinya tertulis "Interior", sudah saya ganti jadi "Jumlah"
-                total_barang_terjual = df_filtered["Jumlah"].sum()
+                # Metrik
+                m1, m2 = st.columns(2)
+                m1.metric("Total Omset", f"Rp {df_filtered['Total Omset'].sum():,.0f}")
+                m2.metric("Total Terjual", f"{df_filtered['Jumlah'].sum()} pcs")
                 
-                if st.session_state.user_role == "Owner":
-                    m1, m2, m3 = st.columns(3)
-                    m1.metric(label="Total Omset Terfilter", value=f"Rp {total_omset:,.0f}")
-                    m2.metric(label="Total Keuntungan Bersih (Profit)", value=f"Rp {total_profit:,.0f}")
-                    m3.metric(label="Total Produk Terjual", value=f"{total_barang_terjual} pcs")
-                else:
-                    m1, m2 = st.columns(2)
-                    m1.metric(label="Total Omset Terfilter", value=f"Rp {total_omset:,.0f}")
-                    m2.metric(label="Total Produk Terjual", value=f"{total_barang_terjual} pcs")
+                # --- LOGIKA CHECKBOX UNTUK SEMUA ROLE ---
+                st.markdown("### ✏️ Data Transaksi (Centang untuk Hapus)")
                 
-                st.markdown("---")
+                # Siapkan dataframe untuk editor
+                df_tampilan = df_filtered.copy()
+                df_tampilan.insert(0, "Pilih", False) # Kolom checkbox
+                df_tampilan["ID Asli"] = df_filtered.index
                 
-                # Definisi kolom agar muncul rapi
-                kolom_owner_urut = ["Waktu", "Tanggal", "Platform", "Toko", "Produk", "Harga Jual", "Harga Modal", "Jumlah", "Biaya Admin %", "Biaya Fix", "Biaya Lain", "Total Omset", "Total Profit"]
-                
-                if st.session_state.user_role == "Admin":
-                    kolom_tampil = ["Waktu", "Tanggal", "Platform", "Toko", "Produk", "Harga Jual", "Jumlah", "Biaya Lain", "Total Omset"]
-                    df_tampilan_tabel = df_filtered[kolom_tampil].copy()
-                    st.dataframe(df_tampilan_tabel, hide_index=True, use_container_width=True)
-                else:
-                    df_tampilan_tabel = df_filtered[kolom_owner_urut].copy()
-                    df_tampilan_tabel.insert(0, "Pilih", False)
-                    df_tampilan_tabel["ID Asli"] = df_tampilan_tabel.index
-                    
-                    # Edit tabel
-                    df_dengan_centang = st.data_editor(
-                        df_tampilan_tabel,
-                        hide_index=True,
-                        use_container_width=True,
-                        disabled=[col for col in df_tampilan_tabel.columns if col != "Pilih"],
-                        column_config={
-                            "Pilih": st.column_config.CheckboxColumn("Pilih", default=False),
-                            "Toko": st.column_config.TextColumn("Nama Toko")
-                        },
-                        key="editor_transaksi_centang"
-                    )
-                    
-                    if "editor_transaksi_centang" in st.session_state and "edited_rows" in st.session_state.editor_transaksi_centang:
-                        perubahan_centang = st.session_state.editor_transaksi_centang["edited_rows"]
-                        list_id_hapus = [df_tampilan_tabel.iloc[int(idx)]["ID Asli"] for idx, status in perubahan_centang.items() if status.get("Pilih") == True]
-                        
-                        if list_id_hapus:
-                            st.write("")
-                            if st.button(f"❌ Hapus ({len(list_id_hapus)}) Transaksi Terpilih Selamanya", type="secondary", use_container_width=True):
-                                df_master_transaksi = muat_data_transaksi()
-                                df_master_transaksi = df_master_transaksi.drop(list_id_hapus)
-                                df_master_transaksi.to_csv(DB_FILE, index=False)
-                                
-                                st.session_state.pesan_toast = f"💥 Sukses! Berhasil menghapus {len(list_id_hapus)} transaksi!"
-                                st.session_state.icon_toast = "🗑️"
-                                st.rerun()
-                
-                st.markdown("---")
-                csv_data = df_filtered.to_csv(index=False).encode('utf-8')
-                st.download_button(
-                    label="📥 Download & Ekspor Laporan Penjualan (CSV)",
-                    data=csv_data,
-                    file_name=f"laporan_pos_{st.session_state.user_role.lower()}.csv",
-                    mime="text/csv",
+                # Menampilkan editor yang SAMA untuk Admin dan Owner
+                df_edit = st.data_editor(
+                    df_tampilan,
+                    hide_index=True,
+                    use_container_width=True,
+                    disabled=[col for col in df_tampilan.columns if col != "Pilih"],
+                    column_config={"Pilih": st.column_config.CheckboxColumn("Pilih", default=False)},
+                    key="editor_transaksi_global"
                 )
+                
+                # Logika Hapus
+                perubahan = st.session_state.editor_transaksi_global.get("edited_rows", {})
+                list_id_hapus = [df_tampilan.iloc[int(idx)]["ID Asli"] for idx, status in perubahan.items() if status.get("Pilih") == True]
+                
+                if list_id_hapus:
+                    if st.button(f"❌ Hapus ({len(list_id_hapus)}) Transaksi Terpilih"):
+                        df_master = muat_data_transaksi()
+                        df_master = df_master.drop(list_id_hapus)
+                        df_master.to_csv(DB_FILE, index=False)
+                        st.success("Berhasil dihapus!")
+                        st.rerun()
 
 # --- TAB 3: MANAJEMEN PRODUK & HARGA ---
 with tab3:
