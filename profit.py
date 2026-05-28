@@ -10,7 +10,7 @@ st.set_page_config(page_title="POS Multi-Marketplace & Manajemen Harga", page_ic
 DB_FILE = "database_transaksi.csv"
 DB_HARGA = "database_harga.csv"
 DB_MASTER_PRODUK = "database_master_produk.csv"
-DB_SESSION = "database_session.txt"  # 🔥 File rahasia pengunci login permanen
+DB_SESSION = "database_session.txt"
 
 # ==========================================
 # 🔔 FITUR POP-UP TOAST QUEUE
@@ -202,7 +202,6 @@ if "logged_in" not in st.session_state:
     st.session_state.user_role = None
     st.session_state.username = ""
 
-# 🔥 AMBIL SESSION LANGSUNG DARI FILE FISIK (ANTI-AMNESIA)
 if not st.session_state.logged_in and os.path.exists(DB_SESSION):
     try:
         with open(DB_SESSION, "r") as f:
@@ -223,8 +222,6 @@ if not st.session_state.logged_in:
         with st.form("form_login"):
             username_input = st.text_input("Username").strip().lower()
             password_input = st.text_input("Password", type="password")
-            
-            # 🔥 SAKLAR GEMBOK PERMANEN
             tetap_login = st.checkbox("Kunci Akun di Perangkat Ini (Ingat Saya / Auto-Login)", value=True)
             tombol_login = st.form_submit_button("Masuk ke Sistem", use_container_width=True)
             
@@ -234,7 +231,6 @@ if not st.session_state.logged_in:
                     st.session_state.user_role = AKUN_USER[username_input]["role"]
                     st.session_state.username = username_input
                     
-                    # 🔥 JIKA DICENTANG, KUNCI PERMANEN KE FILE TEKS SERVER
                     if tetap_login:
                         with open(DB_SESSION, "w") as f:
                             f.write(f"{username_input},{AKUN_USER[username_input]['role']}")
@@ -255,7 +251,6 @@ with st.sidebar:
     st.info(f"**Akses Jaringan:** {st.session_state.user_role}")
     st.markdown("---")
     
-    # 🔥 JIKA LOGOUT, HAPUS FILE KUNCI AGAR KASIR BISA PINDAH AKUN
     if st.button("🚪 Keluar / Logout", type="secondary", use_container_width=True):
         if os.path.exists(DB_SESSION):
             try:
@@ -270,7 +265,13 @@ with st.sidebar:
 st.title("🏪 MESIN POS MULTI-MARKETPLACE")
 st.write(f"Selamat bekerja, **{st.session_state.user_role}**! Data tersinkronisasi otomatis.")
 
-tab1, tab2, tab3 = st.tabs(["📥 Input Transaksi Baru", "📈 Riwayat & Laporan Penjualan", "⚙️ Kelola Manajemen Produk & Harga"])
+# 🔥 SEKARANG KITA PUNYA TAB KE-4 KHUSUS UNTUK KALKULATOR
+tab1, tab2, tab3, tab4 = st.tabs([
+    "📥 Input Transaksi Baru", 
+    "📈 Riwayat & Laporan Penjualan", 
+    "⚙️ Kelola Manajemen Produk & Harga",
+    "🧮 Kalkulator Simulasi Profit"
+])
 
 # --- TAB 1: INPUT TRANSAKSI ---
 with tab1:
@@ -501,3 +502,81 @@ with tab3:
             st.session_state.pesan_toast = "🚀 Sukses! Kamu berhasil mengupdate modal dan harga jual pasar terbaru!"
             st.session_state.icon_toast = "💾"
             st.rerun()
+
+# --- 🔥 TAB 4: KALKULATOR SIMULASI PROFIT (FITUR TERBARU BESTIE) ---
+with tab4:
+    st.subheader("🧮 Alat Simulasi Hitung Untung Bersih Per Produk")
+    st.write("Gunakan tab ini untuk coret-coret simulasi target harga pasar sebelum dipasang iklan atau dijual ke pembeli.")
+    
+    if not MASTER_PRODUK_AKTIF:
+        st.info("Belum ada produk aktif yang bisa disimulasikan.")
+    else:
+        st.markdown("---")
+        col_calc1, col_calc2 = st.columns(2)
+        
+        with col_calc1:
+            st.markdown("### 🎛️ Parameter Input")
+            calc_platform = st.selectbox("Simulasi Platform Tujuan", options=list(KONS_MARKETPLACE.keys()), key="calc_plat")
+            calc_produk = st.selectbox("Simulasi Nama Produk", options=MASTER_PRODUK_AKTIF, key="calc_prod")
+            
+            # Tarik data database harga fresh harian
+            df_harga_calc = muat_database_harga()
+            info_calc = df_harga_calc[df_harga_calc["Produk"] == calc_produk].iloc[0]
+            calc_modal_baku = int(info_calc["Harga Modal"])
+            calc_jual_baku = int(info_calc["Harga Jual"])
+            
+            st.warning(f"📉 **Harga Modal Asli Hari Ini:** Rp {calc_modal_baku:,.0f}")
+            
+            # Input eksperimen harga jual harian
+            calc_harga_jual_input = st.number_input("Masukkan Target Harga Jual (Rp)", min_value=0, value=calc_jual_baku, step=1000, key="calc_jual")
+            calc_jumlah_input = st.number_input("Masukkan Target Jumlah (pcs/pack)", min_value=1, value=1, key="calc_qty")
+            calc_packing_input = st.number_input("Masukkan Estimasi Biaya Packing/Kardus per Pcs (Rp)", min_value=0, value=0, step=500, key="calc_pack")
+            calc_lain_input = st.number_input("Biaya Lainnya per Pcs (Rp)", min_value=0, value=0, step=500, key="calc_lain_fee")
+
+        with col_calc2:
+            st.markdown("### 📊 Hasil Analisis Cuan Bersih")
+            
+            # Hitung Logika Matematika Simulasi
+            rate_persen = KONS_MARKETPLACE[calc_platform]["persen"]
+            rate_fix = KONS_MARKETPLACE[calc_platform]["fix"]
+            
+            sim_omset = calc_harga_jual_input * calc_jumlah_input
+            sim_modal = calc_modal_baku * calc_jumlah_input
+            sim_admin_persen = (rate_persen / 100) * sim_omset
+            sim_admin_fix = rate_fix if calc_harga_jual_input > 0 else 0
+            sim_packing = calc_packing_input * calc_jumlah_input
+            sim_lain = calc_lain_input * calc_jumlah_input
+            
+            sim_total_biaya = sim_modal + sim_admin_persen + sim_admin_fix + sim_packing + sim_lain
+            sim_profit = sim_omset - sim_total_biaya
+            
+            # Hitung Persentase Margin Keuntungan Bersih
+            if sim_omset > 0:
+                sim_margin = (sim_profit / sim_omset) * 100
+            else:
+                sim_margin = 0.0
+            
+            # Tampilkan Ringkasan Box Berwarna
+            if sim_profit > 0:
+                st.success(f"💚 **Estimasi Keuntungan Bersih (Profit):** Rp {sim_profit:,.0f} (Margin: {sim_margin:.2f}%)")
+            elif sim_profit == 0:
+                st.info("🟡 **Estimasi Balik Modal:** Rp 0 (Tidak untung dan tidak rugi)")
+            else:
+                st.error(f"🔴 **⚠️ PERINGATAN BONCOS! Estimasi Rugi Bersih:** Rp {sim_profit:,.0f} (Margin: {sim_margin:.2f}%)")
+            
+            st.markdown("---")
+            
+            # Rincian Tabel Nota Simulasi
+            st.write(f"📋 **Rincian Potongan Komponen ({calc_platform}):**")
+            data_breakdown = {
+                "Komponen Pengeluaran": ["Total Omset Kotor (+)", "Harga Pokok Modal (-)", f"Potongan Admin {rate_persen}% (-)", f"Biaya Proses Fix Marketplace (-)", "Biaya Packing Kardus/Plastik (-)", "Biaya Lain-Lain (-)"],
+                "Nilai Rupiah": [
+                    f"Rp {sim_omset:,.0f}",
+                    f"Rp {sim_modal:,.0f}",
+                    f"Rp {sim_admin_persen:,.0f}",
+                    f"Rp {sim_admin_fix:,.0f}",
+                    f"Rp {sim_packing:,.0f}",
+                    f"Rp {sim_lain:,.0f}"
+                ]
+            }
+            st.table(pd.DataFrame(data_breakdown))
