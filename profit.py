@@ -1,14 +1,7 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
-
-# 🔥 FIX: Menggunakan library bawaan untuk mengunci zona waktu lokal Indonesia
-try:
-    import pytz
-    JAKARTA_TZ = pytz.timezone("Asia/Jakarta")
-except Exception:
-    JAKARTA_TZ = None
 
 # Pengaturan judul halaman web
 st.set_page_config(page_title="POS Multi-Marketplace & Manajemen Harga", page_icon="🏪", layout="wide")
@@ -174,18 +167,14 @@ def muat_data_transaksi():
             pass
     return pd.DataFrame(columns=["Waktu", "Tanggal", "Platform", "Produk", "Harga Jual", "Harga Modal", "Jumlah", "Biaya Admin %", "Biaya Fix", "Biaya Lain", "Total Omset", "Total Profit"])
 
-# 🔥 FIX: FUNGSI SIMPAN TRANSAKSI SEKARANG DIKUNCI KE REALTIME WIB JAKARTA
 def simpan_transaksi(platform, produk, harga_jual, harga_modal, jumlah, biaya_lain):
     df = muat_data_transaksi()
     
-    # Ambil waktu berbasis zona waktu Jakarta (WIB)
-    if JAKARTA_TZ:
-        waktu_sekarang = datetime.now(JAKARTA_TZ)
-    else:
-        waktu_sekarang = datetime.now()
+    waktu_utc = datetime.utcnow()
+    waktu_jakarta = waktu_utc + timedelta(hours=7)
         
-    tanggal = waktu_sekarang.strftime("%Y-%m-%d")
-    jam = waktu_sekarang.strftime("%H:%M:%S")
+    tanggal = waktu_jakarta.strftime("%Y-%m-%d")
+    jam = waktu_jakarta.strftime("%H:%M:%S")
     
     admin_persen_rate = KONS_MARKETPLACE[platform]["persen"]
     admin_fix_rate = KONS_MARKETPLACE[platform]["fix"]
@@ -341,11 +330,9 @@ with tab2:
     else:
         col_f1, col_f2, col_f3 = st.columns(3)
         with col_f1:
-            # Menggunakan waktu Jakarta untuk filter pencarian laporan agar serasi
-            if JAKARTA_TZ:
-                hari_ini = datetime.now(JAKARTA_TZ).date()
-            else:
-                hari_ini = datetime.now().date()
+            waktu_utc_now = datetime.utcnow()
+            waktu_jkt_now = waktu_utc_now + timedelta(hours=7)
+            hari_ini = waktu_jkt_now.date()
             rentang_tanggal = st.date_input("Pilih Rentang Tanggal Laporan", value=(hari_ini, hari_ini))
         with col_f2:
             opsi_filter_platform = ["Semua Platform"] + list(KONS_MARKETPLACE.keys())
@@ -369,7 +356,7 @@ with tab2:
             else:
                 total_omset = df_filtered["Total Omset"].sum()
                 total_profit = df_filtered["Total Profit"].sum()
-                total_barang_terjual = df_filtered["Jumlah"].sum()
+                total_barang_terjual = df_filtered["Interior"].sum() if "Interior" in df_filtered.columns else df_filtered["Jumlah"].sum()
                 
                 if st.session_state.user_role == "Owner":
                     m1, m2, m3 = st.columns(3)
@@ -532,7 +519,7 @@ with tab4:
         admin_persen_def = KONS_MARKETPLACE[platform_calc]["persen"]
         admin_fix_def = KONS_MARKETPLACE[platform_calc]["fix"]
         
-        st.info(f"💡 Kolom **Biaya Admin %** otomatis terisi standar {platform_calc} ({admin_persen_def}%) and **Admin Fix** (Rp {admin_fix_def:,.0f}). Anda bebas mengubahnya langsung di tabel jika ingin simulasi kustom!")
+        st.info(f"💡 Kolom **Biaya Admin %** otomatis terisi standar {platform_calc} ({admin_persen_def}%) dan **Admin Fix** (Rp {admin_fix_def:,.0f}). Kolom **Harga Modal** dikunci agar sinkron dengan manajemen harga!")
 
         df_base_harga = muat_database_harga()
         
@@ -552,9 +539,10 @@ with tab4:
 
         df_kerja = st.session_state.tabel_sim_state.copy()
 
+        # 🔥 FIX CRITICAL: Menambahkan "Harga Modal (Rp)" ke dalam list disabled!
         df_hasil_edit = st.data_editor(
             df_kerja,
-            disabled=["Produk"],
+            disabled=["Produk", "Harga Modal (Rp)"], # <-- SEKARANG HARGA MODAL DI-LOCK MATI 🔒
             use_container_width=True,
             key="kalkulator_massal_editor",
             column_config={
