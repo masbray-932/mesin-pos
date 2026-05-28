@@ -399,27 +399,29 @@ with tab2:
                 st.markdown("---")
                 
                 # 🔥 FIX DISINI: Pastikan susunan kolom menyertakan kolom "Toko" agar tampil di layar monitor
+                kolom_owner_urut = ["Waktu", "Tanggal", "Platform", "Toko", "Produk", "Harga Jual", "Harga Modal", "Jumlah", "Biaya Admin %", "Biaya Fix", "Biaya Lain", "Total Omset", "Total Profit"]
+                
                 if st.session_state.user_role == "Admin":
-                    kolom_kasir = ["Waktu", "Tanggal", "Platform", "Toko", "Produk", "Harga Jual", "Jumlah", "Biaya Lain", "Total Omset"]
-                    df_tampilan_tabel = df_filtered[kolom_kasir].copy()
+                    kolom_tampil = ["Waktu", "Tanggal", "Platform", "Toko", "Produk", "Harga Jual", "Jumlah", "Biaya Lain", "Total Omset"]
+                    df_tampilan_tabel = df_filtered[kolom_tampil].copy()
                     st.dataframe(df_tampilan_tabel, hide_index=True, use_container_width=True)
                 else:
-                    # Susun kolom Owner agar kolom Toko diselipkan rapi setelah Platform
-                    kolom_owner_urut = ["Waktu", "Tanggal", "Platform", "Toko", "Produk", "Harga Jual", "Harga Modal", "Jumlah", "Biaya Admin %", "Biaya Fix", "Biaya Lain", "Total Omset", "Total Profit"]
                     df_tampilan_tabel = df_filtered[kolom_owner_urut].copy()
                     df_tampilan_tabel.insert(0, "Pilih", False)
                     df_tampilan_tabel["ID Asli"] = df_tampilan_tabel.index
                     
-                    st.markdown("### ✏️ Koreksi / Hapus Transaksi (Centang Baris di Tabel)")
+                    st.markdown("### ✏️ Koreksi / Hapus Transaksi")
                     df_dengan_centang = st.data_editor(
                         df_tampilan_tabel,
                         hide_index=True,
                         use_container_width=True,
                         disabled=[col for col in df_tampilan_tabel.columns if col != "Pilih"],
                         column_config={
-                            "Pilih": st.column_config.CheckboxColumn("Pilih", default=False)
+                            "Pilih": st.column_config.CheckboxColumn("Pilih", default=False),
+                            "Toko": st.column_config.TextColumn("Nama Toko", width="medium") # Mencegah kolom Toko diringkas
                         },
                         key="editor_transaksi_centang"
+                    )
                     )
                     
                     if "editor_transaksi_centang" in st.session_state and "edited_rows" in st.session_state.editor_transaksi_centang:
