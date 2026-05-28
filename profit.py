@@ -61,7 +61,7 @@ PRODUK_DEFAULT = [
     "Kampung Omega Grade A (30 butir)"
 ]
 
-# 3. DICTIONARY BIAYA ADMIN PER MARKETPLACE
+# 3. DICTIONARY BIAYA ADMIN PER MARKETPLACE (Default Awal)
 KONS_MARKETPLACE = {
     "Shopee": {"persen": 12.50, "fix": 1250},
     "Tokopedia": {"persen": 16.97, "fix": 0},
@@ -265,7 +265,6 @@ with st.sidebar:
 st.title("🏪 MESIN POS MULTI-MARKETPLACE")
 st.write(f"Selamat bekerja, **{st.session_state.user_role}**! Data tersinkronisasi otomatis.")
 
-# 🔥 SEKARANG KITA PUNYA TAB KE-4 KHUSUS UNTUK KALKULATOR
 tab1, tab2, tab3, tab4 = st.tabs([
     "📥 Input Transaksi Baru", 
     "📈 Riwayat & Laporan Penjualan", 
@@ -503,80 +502,111 @@ with tab3:
             st.session_state.icon_toast = "💾"
             st.rerun()
 
-# --- 🔥 TAB 4: KALKULATOR SIMULASI PROFIT (FITUR TERBARU BESTIE) ---
+# --- 🔥 TAB 4: KALKULATOR SIMULASI PROFIT VERSI HORIZONTAL (MANUAL INPUT) ---
 with tab4:
-    st.subheader("🧮 Alat Simulasi Hitung Untung Bersih Per Produk")
-    st.write("Gunakan tab ini untuk coret-coret simulasi target harga pasar sebelum dipasang iklan atau dijual ke pembeli.")
-    
-    if not MASTER_PRODUK_AKTIF:
-        st.info("Belum ada produk aktif yang bisa disimulasikan.")
-    else:
-        st.markdown("---")
-        col_calc1, col_calc2 = st.columns(2)
-        
-        with col_calc1:
-            st.markdown("### 🎛️ Parameter Input")
-            calc_platform = st.selectbox("Simulasi Platform Tujuan", options=list(KONS_MARKETPLACE.keys()), key="calc_plat")
-            calc_produk = st.selectbox("Simulasi Nama Produk", options=MASTER_PRODUK_AKTIF, key="calc_prod")
-            
-            # Tarik data database harga fresh harian
-            df_harga_calc = muat_database_harga()
-            info_calc = df_harga_calc[df_harga_calc["Produk"] == calc_produk].iloc[0]
-            calc_modal_baku = int(info_calc["Harga Modal"])
-            calc_jual_baku = int(info_calc["Harga Jual"])
-            
-            st.warning(f"📉 **Harga Modal Asli Hari Ini:** Rp {calc_modal_baku:,.0f}")
-            
-            # Input eksperimen harga jual harian
-            calc_harga_jual_input = st.number_input("Masukkan Target Harga Jual (Rp)", min_value=0, value=calc_jual_baku, step=1000, key="calc_jual")
-            calc_jumlah_input = st.number_input("Masukkan Target Jumlah (pcs/pack)", min_value=1, value=1, key="calc_qty")
-            calc_packing_input = st.number_input("Masukkan Estimasi Biaya Packing/Kardus per Pcs (Rp)", min_value=0, value=0, step=500, key="calc_pack")
-            calc_lain_input = st.number_input("Biaya Lainnya per Pcs (Rp)", min_value=0, value=0, step=500, key="calc_lain_fee")
+    st.subheader("🧮 Perbandingan Simulasi Profit Antar Marketplace")
+    st.write("Silakan pilih produk dasar untuk mengambil acuan modal harian, lalu sesuaikan atau ketik manual parameter di bawah ini:")
 
-        with col_calc2:
-            st.markdown("### 📊 Hasil Analisis Cuan Bersih")
+    if not MASTER_PRODUK_AKTIF:
+        st.info("Belum ada produk aktif untuk disimulasikan.")
+    else:
+        # Pilih Produk Utama untuk Acuan Awal
+        calc_produk_pilihan = st.selectbox("Acuan Harga Dasar Produk", options=MASTER_PRODUK_AKTIF, key="new_calc_prod")
+        
+        df_harga_fresh = muat_database_harga()
+        info_fresh = df_harga_fresh[df_harga_fresh["Produk"] == calc_produk_pilihan].iloc[0]
+        modal_baku = int(info_fresh["Harga Modal"])
+        jual_baku = int(info_fresh["Harga Jual"])
+        
+        st.markdown(f"**💡 Acuan Sistem Hari Ini ->** Modal Asli: `Rp {modal_baku:,.0f}` | Harga Jual Standar: `Rp {jual_baku:,.0f}`")
+        st.markdown("---")
+        
+        # MEMBUAT KOLOM INPUT BERJEJER HORIZONTAL SESUAI SCREENSHOT
+        list_platform = ["Shopee", "Tokopedia", "TikTok Shop", "Lazada", "Offline / WA"]
+        
+        # Dictionary untuk menampung hasil input pengguna per platform
+        input_data = {}
+        
+        # Kita bagi layout halaman menjadi 5 kolom (1 kolom untuk 1 platform)
+        cols = st.columns(5)
+        
+        for i, plat in enumerate(list_platform):
+            with cols[i]:
+                st.markdown(f"### 🏪 {plat}")
+                
+                # Ambil nilai default bawaan sistem untuk mempermudah user
+                def_persen = KONS_MARKETPLACE[plat]["persen"]
+                def_fix = KONS_MARKETPLACE[plat]["fix"]
+                
+                # Pembuatan Form Input Manual Per Baris Kolom
+                p_jual = st.number_input(f"Harga Jual ({plat})", min_value=0, value=jual_baku, step=1000, key=f"jual_{plat}")
+                p_modal = st.number_input(f"Harga Modal ({plat})", min_value=0, value=modal_baku, step=1000, key=f"modal_{plat}")
+                p_qty = st.number_input(f"Qty / Jumlah ({plat})", min_value=1, value=1, key=f"qty_{plat}")
+                p_persen = st.number_input(f"Biaya Admin % ({plat})", min_value=0.0, value=float(def_persen), step=0.1, key=f"persen_{plat}")
+                p_fix = st.number_input(f"Biaya Admin Fix Rp ({plat})", min_value=0, value=int(def_fix), step=500, key=f"fix_{plat}")
+                p_pack = st.number_input(f"Biaya Packing Rp ({plat})", min_value=0, value=0, step=500, key=f"pack_{plat}")
+                p_lain = st.number_input(f"Biaya Lain-lain Rp ({plat})", min_value=0, value=0, step=500, key=f"lain_{plat}")
+                
+                # RUMUS LOGIKA MATEMATIKA HITUNG PROFIT
+                omset_kotor = p_jual * p_qty
+                biaya_admin_total = ((p_persen / 100) * omset_kotor) + (p_fix * p_qty)
+                pengeluaran_total = (p_modal * p_qty) + biaya_admin_total + (p_pack * p_qty) + (p_lain * p_qty)
+                profit_bersih = omset_kotor - pengeluaran_total
+                margin_persen = (profit_bersih / omset_kotor * 100) if omset_kotor > 0 else 0.0
+                
+                # Simpan hasil kalkulasi ke dictionary
+                input_data[plat] = {
+                    "omset": omset_kotor,
+                    "admin": biaya_admin_total,
+                    "pengeluaran": pengeluaran_total,
+                    "profit": profit_bersih,
+                    "margin": margin_persen
+                }
+                
+        st.markdown("---")
+        st.markdown("## 📊 Tabel Hasil Analisis Perbandingan Profit")
+        
+        # KITA STRUKTURKAN MENJADI TABEL HORIZONTAL PERSIS SEPERTI GAMBAR CONTOH
+        baris_nama = [
+            "Total Omset Kotor", 
+            "Total Biaya Admin Marketplace", 
+            "Total Pengeluaran Keseluruhan", 
+            "Keuntungan Bersih (Profit)", 
+            "Persentase Margin (%)"
+        ]
+        
+        tabel_final = []
+        for komponen in baris_nama:
+            row_cells = {"Komponen Analisis": komponen}
+            for plat in list_platform:
+                data_plat = input_data[plat]
+                if komponen == "Total Omset Kotor":
+                    row_cells[plat] = f"Rp {data_plat['omset']:,.0f}"
+                elif komponen == "Total Biaya Admin Marketplace":
+                    row_cells[plat] = f"Rp {data_plat['admin']:,.0f}"
+                elif komponen == "Total Pengeluaran Keseluruhan":
+                    row_cells[plat] = f"Rp {data_plat['pengeluaran']:,.0f}"
+                elif komponen == "Keuntungan Bersih (Profit)":
+                    row_cells[plat] = f"Rp {data_plat['profit']:,.0f}"
+                elif komponen == "Persentase Margin (%)":
+                    row_cells[plat] = f"{data_plat['margin']:.2f} %"
+            tabel_final.append(row_cells)
             
-            # Hitung Logika Matematika Simulasi
-            rate_persen = KONS_MARKETPLACE[calc_platform]["persen"]
-            rate_fix = KONS_MARKETPLACE[calc_platform]["fix"]
-            
-            sim_omset = calc_harga_jual_input * calc_jumlah_input
-            sim_modal = calc_modal_baku * calc_jumlah_input
-            sim_admin_persen = (rate_persen / 100) * sim_omset
-            sim_admin_fix = rate_fix if calc_harga_jual_input > 0 else 0
-            sim_packing = calc_packing_input * calc_jumlah_input
-            sim_lain = calc_lain_input * calc_jumlah_input
-            
-            sim_total_biaya = sim_modal + sim_admin_persen + sim_admin_fix + sim_packing + sim_lain
-            sim_profit = sim_omset - sim_total_biaya
-            
-            # Hitung Persentase Margin Keuntungan Bersih
-            if sim_omset > 0:
-                sim_margin = (sim_profit / sim_omset) * 100
-            else:
-                sim_margin = 0.0
-            
-            # Tampilkan Ringkasan Box Berwarna
-            if sim_profit > 0:
-                st.success(f"💚 **Estimasi Keuntungan Bersih (Profit):** Rp {sim_profit:,.0f} (Margin: {sim_margin:.2f}%)")
-            elif sim_profit == 0:
-                st.info("🟡 **Estimasi Balik Modal:** Rp 0 (Tidak untung dan tidak rugi)")
-            else:
-                st.error(f"🔴 **⚠️ PERINGATAN BONCOS! Estimasi Rugi Bersih:** Rp {sim_profit:,.0f} (Margin: {sim_margin:.2f}%)")
-            
-            st.markdown("---")
-            
-            # Rincian Tabel Nota Simulasi
-            st.write(f"📋 **Rincian Potongan Komponen ({calc_platform}):**")
-            data_breakdown = {
-                "Komponen Pengeluaran": ["Total Omset Kotor (+)", "Harga Pokok Modal (-)", f"Potongan Admin {rate_persen}% (-)", f"Biaya Proses Fix Marketplace (-)", "Biaya Packing Kardus/Plastik (-)", "Biaya Lain-Lain (-)"],
-                "Nilai Rupiah": [
-                    f"Rp {sim_omset:,.0f}",
-                    f"Rp {sim_modal:,.0f}",
-                    f"Rp {sim_admin_persen:,.0f}",
-                    f"Rp {sim_admin_fix:,.0f}",
-                    f"Rp {sim_packing:,.0f}",
-                    f"Rp {sim_lain:,.0f}"
-                ]
-            }
-            st.table(pd.DataFrame(data_breakdown))
+        df_hasil_tabel = pd.DataFrame(tabel_final)
+        
+        # Tampilkan tabel statis dengan kustomisasi visual sederhana di Streamlit
+        st.dataframe(df_hasil_tabel, use_container_width=True, hide_index=True)
+        
+        # MEMBERIKAN HIGHLIGHT WARNA COMPACT BOX DI BAWAHNYA AGAR MAKIN CANTIK & MUDAH DIBACA
+        st.markdown("### 🎯 Ringkasan Status Cuan Bersih:")
+        summary_cols = st.columns(5)
+        for idx, plat in enumerate(list_platform):
+            with summary_cols[idx]:
+                cuan = input_data[plat]['profit']
+                margin = input_data[plat]['margin']
+                if cuan > 0:
+                    st.markdown(f"<div style='background-color:#d4edda; padding:10px; border-radius:5px; text-align:center; border: 1px solid #c3e6cb;'><b style='color:#155724;'>🟢 {plat} Profit</b><br><span style='color:#155724; font-size:15px; font-weight:bold;'>Rp {cuan:,.0f}</span><br><small style='color:#155724;'>Margin: {margin:.2f}%</small></div>", unsafe_allow_html=True)
+                elif cuan == 0:
+                    st.markdown(f"<div style='background-color:#fff3cd; padding:10px; border-radius:5px; text-align:center; border: 1px solid #ffeeba;'><b style='color:#856404;'>🟡 {plat} BEP</b><br><span style='color:#856404; font-size:15px; font-weight:bold;'>Rp 0</span></div>", unsafe_allow_html=True)
+                else:
+                    st.markdown(f"<div style='background-color:#f8d7da; padding:10px; border-radius:5px; text-align:center; border: 1px solid #f5c6cb;'><b style='color:#721c24;'>🔴 {plat} BONCOS!</b><br><span style='color:#721c24; font-size:15px; font-weight:bold;'>Rp {cuan:,.0f}</span><br><small style='color:#721c24;'>Margin: {margin:.2f}%</small></div>", unsafe_allow_html=True)
