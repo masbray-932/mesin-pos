@@ -356,7 +356,7 @@ with tab2:
             else:
                 total_omset = df_filtered["Total Omset"].sum()
                 total_profit = df_filtered["Total Profit"].sum()
-                total_barang_terjual = df_filtered["Interior"].sum() if "Interior" in df_filtered.columns else df_filtered["Jumlah"].sum()
+                total_barang_terjual = df_filtered["Jumlah"].sum()
                 
                 if st.session_state.user_role == "Owner":
                     m1, m2, m3 = st.columns(3)
@@ -460,7 +460,7 @@ with tab3:
                     key="editor_produk_hapus_centang"
                 )
                 
-                if "editor_produk_hapus_centang" in st.session_state and "edited_rows" in st.session_state.editor_produk_hapus_centang:
+                if "editor_produk_hapus_prod_centang" in st.session_state and "edited_rows" in st.session_state.editor_produk_hapus_centang:
                     perubahan_prod = st.session_state.editor_produk_hapus_centang["edited_rows"]
                     list_prod_hapus = [df_hapus_prod.iloc[int(idx)]["Produk"] for idx, status in perubahan_prod.items() if status.get("Pilih") == True]
                     
@@ -506,7 +506,7 @@ with tab3:
             st.session_state.icon_toast = "💾"
             st.rerun()
 
-# --- TAB 4: KALKULATOR SIMULASI PROFIT MASSAL ---
+# --- TAB 4: KALKULATOR SIMULASI PROFIT MASSAL (🔥 REVISI: TANPA ADMIN FIX) ---
 with tab4:
     st.subheader("🧮 Tabel Simulasi Profit Massal Semua Produk")
     st.write("Pilih marketplace target terlebih dahulu, lalu edit parameter angka langsung di dalam tabel untuk melihat simulasi profit secara instan!")
@@ -517,19 +517,18 @@ with tab4:
         platform_calc = st.selectbox("Target Platform Marketplace", options=list(KONS_MARKETPLACE.keys()), key="tab4_plat")
         
         admin_persen_def = KONS_MARKETPLACE[platform_calc]["persen"]
-        admin_fix_def = KONS_MARKETPLACE[platform_calc]["fix"]
         
-        st.info(f"💡 Kolom **Biaya Admin %** otomatis terisi standar {platform_calc} ({admin_persen_def}%) dan **Admin Fix** (Rp {admin_fix_def:,.0f}). Kolom **Harga Modal** dikunci agar sinkron dengan manajemen harga!")
+        st.info(f"💡 Kolom **Biaya Admin %** otomatis terisi standar {platform_calc} ({admin_persen_def}%). Kolom **Harga Modal** dikunci agar sinkron dengan manajemen harga!")
 
         df_base_harga = muat_database_harga()
         
+        # 🔥 FIX: Menghapus total kolom "Admin Fix (Rp)" dari dataframe rancangan awal
         df_simulasi = pd.DataFrame()
         df_simulasi["Produk"] = df_base_harga["Produk"]
         df_simulasi["Harga Jual (Rp)"] = df_base_harga["Harga Jual"]
         df_simulasi["Harga Modal (Rp)"] = df_base_harga["Harga Modal"]
         df_simulasi["Qty (Pcs)"] = 1
         df_simulasi["Admin (%)"] = float(admin_persen_def)
-        df_simulasi["Admin Fix (Rp)"] = int(admin_fix_def)
         df_simulasi["Packing (Rp)"] = 0
         df_simulasi["Lain-lain (Rp)"] = 0
 
@@ -539,10 +538,9 @@ with tab4:
 
         df_kerja = st.session_state.tabel_sim_state.copy()
 
-        # 🔥 FIX CRITICAL: Menambahkan "Harga Modal (Rp)" ke dalam list disabled!
         df_hasil_edit = st.data_editor(
             df_kerja,
-            disabled=["Produk", "Harga Modal (Rp)"], # <-- SEKARANG HARGA MODAL DI-LOCK MATI 🔒
+            disabled=["Produk", "Harga Modal (Rp)"], 
             use_container_width=True,
             key="kalkulator_massal_editor",
             column_config={
@@ -550,7 +548,6 @@ with tab4:
                 "Harga Modal (Rp)": st.column_config.NumberColumn("Harga Modal (Rp)", min_value=0, format="%d"),
                 "Qty (Pcs)": st.column_config.NumberColumn("Qty (Pcs)", min_value=1, format="%d"),
                 "Admin (%)": st.column_config.NumberColumn("Admin (%)", min_value=0.0, format="%.2f"),
-                "Admin Fix (Rp)": st.column_config.NumberColumn("Admin Fix (Rp)", min_value=0, format="%d"),
                 "Packing (Rp)": st.column_config.NumberColumn("Packing (Rp)", min_value=0, format="%d"),
                 "Lain-lain (Rp)": st.column_config.NumberColumn("Lain-lain (Rp)", min_value=0, format="%d"),
             }
@@ -566,8 +563,9 @@ with tab4:
 
         st.markdown("### 📊 Live Hasil Perhitungan Profit Bersih")
         
+        # 🔥 FIX: Kalkulasi matematika murni tanpa memasukkan potongan biaya admin fix item
         omset_kotor = df_hasil_edit["Harga Jual (Rp)"] * df_hasil_edit["Qty (Pcs)"]
-        biaya_admin_total = ((df_hasil_edit["Admin (%)"] / 100) * omset_kotor) + (df_hasil_edit["Admin Fix (Rp)"] * df_hasil_edit["Qty (Pcs)"])
+        biaya_admin_total = (df_hasil_edit["Admin (%)"] / 100) * omset_kotor
         biaya_packing_total = df_hasil_edit["Packing (Rp)"] * df_hasil_edit["Qty (Pcs)"]
         biaya_lain_total = df_hasil_edit["Lain-lain (Rp)"] * df_hasil_edit["Qty (Pcs)"]
         modal_total = df_hasil_edit["Harga Modal (Rp)"] * df_hasil_edit["Qty (Pcs)"]
