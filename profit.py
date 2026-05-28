@@ -343,7 +343,7 @@ with tab1:
             st.session_state.icon_toast = "✅"
             st.rerun()
 
-# --- TAB 2: RIWAYAT & LAPORAN (🔥 FIX UPDATE: KOLOM TOKO SUNTIK MASUK KE TAMPILAN TABEL) ---
+# --- TAB 2: RIWAYAT & LAPORAN ---
 with tab2:
     st.subheader("Riwayat & Analisis Penjualan")
     df_transaksi = muat_data_transaksi()
@@ -384,6 +384,7 @@ with tab2:
             else:
                 total_omset = df_filtered["Total Omset"].sum()
                 total_profit = df_filtered["Total Profit"].sum()
+                # 🔥 FIX: Di sini tadinya tertulis "Interior", sudah saya ganti jadi "Jumlah"
                 total_barang_terjual = df_filtered["Jumlah"].sum()
                 
                 if st.session_state.user_role == "Owner":
@@ -398,7 +399,7 @@ with tab2:
                 
                 st.markdown("---")
                 
-                # 🔥 FIX DISINI: Pastikan susunan kolom menyertakan kolom "Toko" agar tampil di layar monitor
+                # Definisi kolom agar muncul rapi
                 kolom_owner_urut = ["Waktu", "Tanggal", "Platform", "Toko", "Produk", "Harga Jual", "Harga Modal", "Jumlah", "Biaya Admin %", "Biaya Fix", "Biaya Lain", "Total Omset", "Total Profit"]
                 
                 if st.session_state.user_role == "Admin":
@@ -410,7 +411,7 @@ with tab2:
                     df_tampilan_tabel.insert(0, "Pilih", False)
                     df_tampilan_tabel["ID Asli"] = df_tampilan_tabel.index
                     
-                    st.markdown("### ✏️ Koreksi / Hapus Transaksi")
+                    # Edit tabel
                     df_dengan_centang = st.data_editor(
                         df_tampilan_tabel,
                         hide_index=True,
@@ -418,35 +419,10 @@ with tab2:
                         disabled=[col for col in df_tampilan_tabel.columns if col != "Pilih"],
                         column_config={
                             "Pilih": st.column_config.CheckboxColumn("Pilih", default=False),
-                            "Toko": st.column_config.TextColumn("Nama Toko", width="medium") # Mencegah kolom Toko diringkas
+                            "Toko": st.column_config.TextColumn("Nama Toko")
                         },
                         key="editor_transaksi_centang"
                     )
-                    )
-                    
-                    if "editor_transaksi_centang" in st.session_state and "edited_rows" in st.session_state.editor_transaksi_centang:
-                        perubahan_centang = st.session_state.editor_transaksi_centang["edited_rows"]
-                        list_id_hapus = [df_tampilan_tabel.iloc[int(idx)]["ID Asli"] for idx, status in perubahan_centang.items() if status.get("Pilih") == True]
-                        
-                        if list_id_hapus:
-                            st.write("")
-                            if st.button(f"❌ Hapus ({len(list_id_hapus)}) Transaksi Terpilih Selamanya", type="secondary", use_container_width=True):
-                                df_master_transaksi = muat_data_transaksi()
-                                df_master_transaksi = df_master_transaksi.drop(list_id_hapus)
-                                df_master_transaksi.to_csv(DB_FILE, index=False)
-                                
-                                st.session_state.pesan_toast = f"💥 Sukses! Berhasil menghapus {len(list_id_hapus)} transaksi!"
-                                st.session_state.icon_toast = "🗑️"
-                                st.rerun()
-                
-                st.markdown("---")
-                csv_data = df_filtered.to_csv(index=False).encode('utf-8')
-                st.download_button(
-                    label="📥 Download & Ekspor Laporan Penjualan (CSV)",
-                    data=csv_data,
-                    file_name=f"laporan_pos_{st.session_state.user_role.lower()}.csv",
-                    mime="text/csv",
-                )
 
 # --- TAB 3: MANAJEMEN PRODUK & HARGA ---
 with tab3:
