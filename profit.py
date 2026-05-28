@@ -501,93 +501,95 @@ with tab3:
             st.session_state.icon_toast = "💾"
             st.rerun()
 
-# --- 🔥 TAB 4: KALKULATOR VERSI ANTI-PUSING (1 KOLOM INPUT, HASIL BERBENTUK TABEL EXCEL) ---
+# --- 🔥 TAB 4: KALKULATOR VERSI TABEL INTERAKTIF MASSAL (PERSIS MENU KELOLA HARGA) ---
 with tab4:
-    st.subheader("🧮 Kalkulator Simulasi Profit Per Platform (Versi Rapi)")
-    st.write("Silakan pilih 1 platform secara bergantian agar tampilan layar tetap lega dan mudah dipahami.")
+    st.subheader("🧮 Tabel Simulasi Profit Massal Semua Produk")
+    st.write("Pilih marketplace target terlebih dahulu, lalu edit parameter angka langsung di dalam tabel untuk melihat simulasi profit secara instan!")
 
     if not MASTER_PRODUK_AKTIF:
         st.info("Belum ada produk aktif untuk disimulasikan.")
     else:
-        st.markdown("---")
-        col_bersih1, col_bersih2 = st.columns([2, 3]) # Kolom kiri agak kecil untuk input, kanan besar untuk tabel hasil
+        # 1. Pilih Marketplace untuk menentukan parameter biaya bawaan awal
+        platform_calc = st.selectbox("Target Platform Marketplace", options=list(KONS_MARKETPLACE.keys()), key="tab4_plat")
         
-        with col_bersih1:
-            st.markdown("### 🎛️ Masukkan Data Simulasi")
-            calc_platform = st.selectbox("Pilih Platform Target", options=list(KONS_MARKETPLACE.keys()), key="clean_plat")
-            calc_produk = st.selectbox("Pilih Produk", options=MASTER_PRODUK_AKTIF, key="clean_prod")
-            
-            # Ambil data bawaan database
-            df_harga_calc = muat_database_harga()
-            info_calc = df_harga_calc[df_harga_calc["Produk"] == calc_produk].iloc[0]
-            modal_awal = int(info_calc["Harga Modal"])
-            jual_awal = int(info_calc["Harga Jual"])
-            
-            # Sediakan data default potongan pasar harian
-            def_persen = KONS_MARKETPLACE[calc_platform]["persen"]
-            def_fix = KONS_MARKETPLACE[calc_platform]["fix"]
-            
-            # Input manual berbaris ke bawah (Anti-Pusing!)
-            p_jual = st.number_input("Harga Jual Manual (Rp)", min_value=0, value=jual_awal, step=1000, key="c_jual")
-            p_modal = st.number_input("Harga Modal Manual (Rp)", min_value=0, value=modal_awal, step=1000, key="c_modal")
-            p_qty = st.number_input("Jumlah / Quantity (Pcs)", min_value=1, value=1, key="c_qty")
-            p_persen = st.number_input("Biaya Admin % (Bisa Diedit)", min_value=0.0, value=float(def_persen), step=0.1, key="c_persen")
-            p_fix = st.number_input("Biaya Admin Fix Rp (Bisa Diedit)", min_value=0, value=int(def_fix), step=500, key="c_fix")
-            p_pack = st.number_input("Biaya Packing Kardus / Plastik (Rp)", min_value=0, value=0, step=500, key="c_pack")
-            p_lain = st.number_input("Biaya Operasional Lain-lain (Rp)", min_value=0, value=0, step=500, key="c_lain")
+        admin_persen_def = KONS_MARKETPLACE[platform_calc]["persen"]
+        admin_fix_def = KONS_MARKETPLACE[platform_calc]["fix"]
+        
+        st.info(f"💡 Kolom **Biaya Admin %** otomatis terisi standar {platform_calc} ({admin_persen_def}%) dan **Admin Fix** (Rp {admin_fix_def:,.0f}). Anda bebas mengubahnya langsung di tabel jika ingin simulasi kustom!")
 
-        with col_bersih2:
-            st.markdown("### 📊 Tabel Rincian Keuntungan Bersih")
-            
-            # LOGIKA KALKULASI MATEMATIKA
-            omset_kotor = p_jual * p_qty
-            admin_persen_total = (p_persen / 100) * omset_kotor
-            admin_fix_total = p_fix * p_qty if p_jual > 0 else 0
-            biaya_admin_gabungan = admin_persen_total + admin_fix_total
-            
-            packing_total = p_pack * p_qty
-            lain_total = p_lain * p_qty
-            modal_total = p_modal * p_qty
-            
-            pengeluaran_total = modal_total + biaya_admin_gabungan + packing_total + lain_total
-            profit_bersih = omset_kotor - pengeluaran_total
-            margin_persen = (profit_bersih / omset_kotor * 100) if omset_kotor > 0 else 0.0
-            
-            # KOTAK HIGHLIGHT STATUS CUAN (SUCCESS / ERROR)
-            if profit_bersih > 0:
-                st.success(f"🟢 **STATUS: PROFIT BERSIH!** Anda untung **Rp {profit_bersih:,.0f}** pada platform {calc_platform}.")
-            elif profit_bersih == 0:
-                st.info(f"🟡 **STATUS: BALIK MODAL (BEP)!** Tidak untung dan tidak rugi.")
-            else:
-                st.error(f"🔴 **STATUS: BONCOS / RUGI!** Anda minus **Rp {profit_bersih:,.0f}**. Tolong naikkan harga jual harian!")
-            
-            st.write("")
-            
-            # MEMBUAT STRUKTUR TABEL VERTIKAL SEPERTI EXCEL REVISI KAMU
-            struktur_tabel_revisi = {
-                "Komponen Laporan Simulasi": [
-                    "1. Total Omset Kotor (+)",
-                    "2. Total Harga Pokok Modal (-)",
-                    "3. Total Biaya Admin % Marketplace (-)",
-                    "4. Total Biaya Admin Fix Per Item (-)",
-                    "5. Total Pengeluaran Packing Kardus (-)",
-                    "6. Total Biaya Operasional Lainnya (-)",
-                    "🔥 TOTAL PENGELUARAN KESELURUHAN",
-                    "💰 KEUNTUNGAN BERSIH (PROFIT NYATA)",
-                    "📈 PERSENTASE MARGIN (%)"
-                ],
-                f"Hasil Perhitungan ({calc_platform})": [
-                    f"Rp {omset_kotor:,.0f}",
-                    f"Rp {modal_total:,.0f}",
-                    f"Rp {admin_persen_total:,.0f}",
-                    f"Rp {admin_fix_total:,.0f}",
-                    f"Rp {packing_total:,.0f}",
-                    f"Rp {lain_total:,.0f}",
-                    f"Rp {pengeluaran_total:,.0f}",
-                    f"Rp {profit_bersih:,.0f}",
-                    f"{margin_persen:.2f} %"
-                ]
+        # 2. Ambil basis data harga asli hari ini
+        df_base_harga = muat_database_harga()
+        
+        # 3. Buat kerangka dataframe simulasi interaktif
+        df_simulasi = pd.DataFrame()
+        df_simulasi["Produk"] = df_base_harga["Produk"]
+        df_simulasi["Harga Jual (Rp)"] = df_base_harga["Harga Jual"]
+        df_simulasi["Harga Modal (Rp)"] = df_base_harga["Harga Modal"]
+        df_simulasi["Qty (Pcs)"] = 1
+        df_simulasi["Admin (%)"] = float(admin_persen_def)
+        df_simulasi["Admin Fix (Rp)"] = int(admin_fix_def)
+        df_simulasi["Packing (Rp)"] = 0
+        df_simulasi["Lain-lain (Rp)"] = 0
+
+        # 4. MEMASUKKAN STATE SESSION BIAR INPUTAN TIDAK HILANG SAAT DIKETIK
+        if "tabel_sim_state" not in st.session_state or st.session_state.get("prev_plat") != platform_calc:
+            st.session_state.tabel_sim_state = df_simulasi.copy()
+            st.session_state.prev_plat = platform_calc
+
+        df_kerja = st.session_state.tabel_sim_state.copy()
+
+        # 5. TAMPILKAN TABEL DATA EDITOR INTERAKTIF (GAYA KELOLA HARGA)
+        df_hasil_edit = st.data_editor(
+            df_kerja,
+            disabled=["Produk"],
+            use_container_width=True,
+            key="kalkulator_massal_editor",
+            column_config={
+                "Harga Jual (Rp)": st.column_config.NumberColumn("Harga Jual (Rp)", min_value=0, format="%d"),
+                "Harga Modal (Rp)": st.column_config.NumberColumn("Harga Modal (Rp)", min_value=0, format="%d"),
+                "Qty (Pcs)": st.column_config.NumberColumn("Qty (Pcs)", min_value=1, format="%d"),
+                "Admin (%)": st.column_config.NumberColumn("Admin (%)", min_value=0.0, format="%.2f"),
+                "Admin Fix (Rp)": st.column_config.NumberColumn("Admin Fix (Rp)", min_value=0, format="%d"),
+                "Packing (Rp)": st.column_config.NumberColumn("Packing (Rp)", min_value=0, format="%d"),
+                "Lain-lain (Rp)": st.column_config.NumberColumn("Lain-lain (Rp)", min_value=0, format="%d"),
             }
-            
-            df_revisi_final = pd.DataFrame(struktur_tabel_revisi)
-            st.dataframe(df_revisi_final, use_container_width=True, hide_index=True)
+        )
+
+        # Update data internal jika user mengetik sesuatu di tabel
+        if "kalkulator_massal_editor" in st.session_state and "edited_rows" in st.session_state.kalkulator_massal_editor:
+            perubahan_kalkulator = st.session_state.kalkulator_massal_editor["edited_rows"]
+            for r_idx_str, cols_changed in perubahan_kalkulator.items():
+                r_idx = int(r_idx_str)
+                for c_name, new_val in cols_changed.items():
+                    df_hasil_edit.at[r_idx, c_name] = new_val
+            st.session_state.tabel_sim_state = df_hasil_edit.copy()
+
+        # 6. HITUNG OTOMATIS HASIL AKHIR PROFITNYA SECARA LIVE DI BAWAHNYA
+        st.markdown("### 📊 Live Hasil Perhitungan Profit Bersih")
+        
+        # Eksekusi Rumus Matematika Massal pakai Pandas Vectorization
+        omset_kotor = df_hasil_edit["Harga Jual (Rp)"] * df_hasil_edit["Qty (Pcs)"]
+        biaya_admin_total = ((df_hasil_edit["Admin (%)"] / 100) * omset_kotor) + (df_hasil_edit["Admin Fix (Rp)"] * df_hasil_edit["Qty (Pcs)"])
+        biaya_packing_total = df_hasil_edit["Packing (Rp)"] * df_hasil_edit["Qty (Pcs)"]
+        biaya_lain_total = df_hasil_edit["Lain-lain (Rp)"] * df_hasil_edit["Qty (Pcs)"]
+        modal_total = df_hasil_edit["Harga Modal (Rp)"] * df_hasil_edit["Qty (Pcs)"]
+        
+        pengeluaran_total = modal_total + biaya_admin_total + biaya_packing_total + biaya_lain_total
+        profit_bersih = omset_kotor - pengeluaran_total
+        margin_persen = (profit_bersih / omset_kotor * 100).fillna(0.0)
+
+        # Buat dataframe laporan ringkas khusus hasil akhir
+        df_laporan_hasil = pd.DataFrame()
+        df_laporan_hasil["Nama Produk"] = df_hasil_edit["Produk"]
+        df_laporan_hasil["Total Omset Kotor"] = omset_kotor.map(lambda x: f"Rp {x:,.0f}")
+        df_laporan_hasil["Total Potongan Admin"] = biaya_admin_total.map(lambda x: f"Rp {x:,.0f}")
+        df_laporan_hasil["Total Pengeluaran"] = pengeluaran_total.map(lambda x: f"Rp {x:,.0f}")
+        df_laporan_hasil["PROFIT BERSIH"] = profit_bersih.map(lambda x: f"Rp {x:,.0f}")
+        df_laporan_hasil["Margin (%)"] = margin_persen.map(lambda x: f"{x:.2f} %")
+
+        st.dataframe(df_laporan_hasil, use_container_width=True, hide_index=True)
+        
+        if st.button("🔄 Reset Angka Simulasi", type="secondary", use_container_width=True):
+            if "tabel_sim_state" in st.session_state:
+                del st.session_state.tabel_sim_state
+            st.rerun()
