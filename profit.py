@@ -70,7 +70,7 @@ KONS_MARKETPLACE = {
     "Offline / WA": {"persen": 0.00, "fix": 0}
 }
 
-# 🔥 4. PEMETAAN DAFTAR TOKO SESUAI MING-MASTERY REVISI ANTONY
+# 4. PEMETAAN DAFTAR TOKO SESUAI REVISI ANTONY
 DAFTAR_TOKO_PLATFORM = {
     "Shopee": ["Sinar Bintang Telur", "EGGKU", "Astra Telur", "Telur88"],
     "Tokopedia": ["Sinar Bintang Telur", "SB Telur", "Astra Telur"],
@@ -173,7 +173,6 @@ def muat_data_transaksi():
     if os.path.exists(DB_FILE):
         try:
             df = pd.read_csv(DB_FILE)
-            # Jalankan auto-upgrade kolom jika file lama belum ada kolom 'Toko'
             if "Toko" not in df.columns:
                 df["Toko"] = "Utama"
                 df.to_csv(DB_FILE, index=False)
@@ -182,7 +181,6 @@ def muat_data_transaksi():
             pass
     return pd.DataFrame(columns=kolom_wajib)
 
-# 🔥 FIX UPDATE: Fungsi sekarang ikut merekam parameter 'toko'
 def simpan_transaksi(platform, toko, produk, harga_jual, harga_modal, jumlah, biaya_lain, tanggal_pilihan):
     df = muat_data_transaksi()
     
@@ -289,7 +287,7 @@ tab1, tab2, tab3, tab4 = st.tabs([
     "🧮 Kalkulator Simulasi Profit"
 ])
 
-# --- TAB 1: INPUT TRANSAKSI (🔥 UPGRADE: FITUR MULTI-TOKO) ---
+# --- TAB 1: INPUT TRANSAKSI ---
 with tab1:
     st.subheader("Tambah Transaksi Baru")
     if not MASTER_PRODUK_AKTIF:
@@ -306,7 +304,6 @@ with tab1:
             input_tanggal_manual = st.date_input("Pilih Tanggal Transaksi", value=hari_ini_wib, key="input_tgl")
             platform_pilihan = st.selectbox("Pilih Platform Marketplace", options=list(KONS_MARKETPLACE.keys()))
             
-            # 🔥 SUNTIKAN BARU: Dropdown dinamis memilih nama toko spesifik
             list_toko_tersedia = DAFTAR_TOKO_PLATFORM[platform_pilihan]
             toko_pilihan = st.selectbox("Pilih Cabang Toko Anda", options=list_toko_tersedia, key="pilih_toko_trx")
             
@@ -346,7 +343,7 @@ with tab1:
             st.session_state.icon_toast = "✅"
             st.rerun()
 
-# --- TAB 2: RIWAYAT & LAPORAN (🔥 UPGRADE: FILTER PER TOKO) ---
+# --- TAB 2: RIWAYAT & LAPORAN (🔥 FIX UPDATE: KOLOM TOKO SUNTIK MASUK KE TAMPILAN TABEL) ---
 with tab2:
     st.subheader("Riwayat & Analisis Penjualan")
     df_transaksi = muat_data_transaksi()
@@ -354,7 +351,6 @@ with tab2:
     if df_transaksi.empty:
         st.info("Belum ada data transaksi yang disimpan.")
     else:
-        # Menambah layout filter di bagian atas laporan
         col_f1, col_f2, col_f2_b, col_f3 = st.columns(4)
         with col_f1:
             waktu_utc_now = datetime.utcnow()
@@ -365,7 +361,6 @@ with tab2:
             opsi_filter_platform = ["Semua Platform"] + list(KONS_MARKETPLACE.keys())
             platform_terpilih = st.selectbox("Filter Berdasarkan Platform", options=opsi_filter_platform)
         with col_f2_b:
-            # 🔥 SUNTIKAN BARU: Filter Toko dinamis berdasarkan database transaksi yang ada
             list_toko_filter = ["Semua Cabang Toko"] + sorted(df_transaksi["Toko"].dropna().unique().tolist())
             toko_terpilih = st.selectbox("Filter Berdasarkan Toko Spesifik", options=list_toko_filter)
         with col_f3:
@@ -403,12 +398,15 @@ with tab2:
                 
                 st.markdown("---")
                 
+                # 🔥 FIX DISINI: Pastikan susunan kolom menyertakan kolom "Toko" agar tampil di layar monitor
                 if st.session_state.user_role == "Admin":
                     kolom_kasir = ["Waktu", "Tanggal", "Platform", "Toko", "Produk", "Harga Jual", "Jumlah", "Biaya Lain", "Total Omset"]
                     df_tampilan_tabel = df_filtered[kolom_kasir].copy()
                     st.dataframe(df_tampilan_tabel, hide_index=True, use_container_width=True)
                 else:
-                    df_tampilan_tabel = df_filtered.copy()
+                    # Susun kolom Owner agar kolom Toko diselipkan rapi setelah Platform
+                    kolom_owner_urut = ["Waktu", "Tanggal", "Platform", "Toko", "Produk", "Harga Jual", "Harga Modal", "Jumlah", "Biaya Admin %", "Biaya Fix", "Biaya Lain", "Total Omset", "Total Profit"]
+                    df_tampilan_tabel = df_filtered[kolom_owner_urut].copy()
                     df_tampilan_tabel.insert(0, "Pilih", False)
                     df_tampilan_tabel["ID Asli"] = df_tampilan_tabel.index
                     
