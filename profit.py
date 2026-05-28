@@ -61,7 +61,7 @@ PRODUK_DEFAULT = [
     "Kampung Omega Grade A (30 butir)"
 ]
 
-# 3. DICTIONARY BIAYA ADMIN PER MARKETPLACE (Default Awal)
+# 3. DICTIONARY BIAYA ADMIN PER MARKETPLACE
 KONS_MARKETPLACE = {
     "Shopee": {"persen": 12.50, "fix": 1250},
     "Tokopedia": {"persen": 16.97, "fix": 0},
@@ -195,7 +195,7 @@ def simpan_transaksi(platform, produk, harga_jual, harga_modal, jumlah, biaya_la
     df.to_csv(DB_FILE, index=False)
 
 # ==========================================
-# 🔐 LOGIKA SISTEM LOGIN FILE-LOCK PERMANEN
+# 🔐 LOGIKA SISTEM LOGIN PERMANEN
 # ==========================================
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
@@ -241,10 +241,9 @@ if not st.session_state.logged_in:
                     st.error("❌ Username atau Password salah, silakan cek kembali!")
     st.stop()
 
-# --- AMBIL DATA MASTER PRODUK AKTIF ---
 MASTER_PRODUK_AKTIF = muat_daftar_produk()
 
-# Membuat Sidebar
+# Sidebar
 with st.sidebar:
     st.markdown(f"### 👤 Akun Aktif")
     st.write(f"**Username:** `{st.session_state.username}`")
@@ -502,111 +501,93 @@ with tab3:
             st.session_state.icon_toast = "💾"
             st.rerun()
 
-# --- 🔥 TAB 4: KALKULATOR SIMULASI PROFIT VERSI HORIZONTAL (MANUAL INPUT) ---
+# --- 🔥 TAB 4: KALKULATOR VERSI ANTI-PUSING (1 KOLOM INPUT, HASIL BERBENTUK TABEL EXCEL) ---
 with tab4:
-    st.subheader("🧮 Perbandingan Simulasi Profit Antar Marketplace")
-    st.write("Silakan pilih produk dasar untuk mengambil acuan modal harian, lalu sesuaikan atau ketik manual parameter di bawah ini:")
+    st.subheader("🧮 Kalkulator Simulasi Profit Per Platform (Versi Rapi)")
+    st.write("Silakan pilih 1 platform secara bergantian agar tampilan layar tetap lega dan mudah dipahami.")
 
     if not MASTER_PRODUK_AKTIF:
         st.info("Belum ada produk aktif untuk disimulasikan.")
     else:
-        # Pilih Produk Utama untuk Acuan Awal
-        calc_produk_pilihan = st.selectbox("Acuan Harga Dasar Produk", options=MASTER_PRODUK_AKTIF, key="new_calc_prod")
-        
-        df_harga_fresh = muat_database_harga()
-        info_fresh = df_harga_fresh[df_harga_fresh["Produk"] == calc_produk_pilihan].iloc[0]
-        modal_baku = int(info_fresh["Harga Modal"])
-        jual_baku = int(info_fresh["Harga Jual"])
-        
-        st.markdown(f"**💡 Acuan Sistem Hari Ini ->** Modal Asli: `Rp {modal_baku:,.0f}` | Harga Jual Standar: `Rp {jual_baku:,.0f}`")
         st.markdown("---")
+        col_bersih1, col_bersih2 = st.columns([2, 3]) # Kolom kiri agak kecil untuk input, kanan besar untuk tabel hasil
         
-        # MEMBUAT KOLOM INPUT BERJEJER HORIZONTAL SESUAI SCREENSHOT
-        list_platform = ["Shopee", "Tokopedia", "TikTok Shop", "Lazada", "Offline / WA"]
-        
-        # Dictionary untuk menampung hasil input pengguna per platform
-        input_data = {}
-        
-        # Kita bagi layout halaman menjadi 5 kolom (1 kolom untuk 1 platform)
-        cols = st.columns(5)
-        
-        for i, plat in enumerate(list_platform):
-            with cols[i]:
-                st.markdown(f"### 🏪 {plat}")
-                
-                # Ambil nilai default bawaan sistem untuk mempermudah user
-                def_persen = KONS_MARKETPLACE[plat]["persen"]
-                def_fix = KONS_MARKETPLACE[plat]["fix"]
-                
-                # Pembuatan Form Input Manual Per Baris Kolom
-                p_jual = st.number_input(f"Harga Jual ({plat})", min_value=0, value=jual_baku, step=1000, key=f"jual_{plat}")
-                p_modal = st.number_input(f"Harga Modal ({plat})", min_value=0, value=modal_baku, step=1000, key=f"modal_{plat}")
-                p_qty = st.number_input(f"Qty / Jumlah ({plat})", min_value=1, value=1, key=f"qty_{plat}")
-                p_persen = st.number_input(f"Biaya Admin % ({plat})", min_value=0.0, value=float(def_persen), step=0.1, key=f"persen_{plat}")
-                p_fix = st.number_input(f"Biaya Admin Fix Rp ({plat})", min_value=0, value=int(def_fix), step=500, key=f"fix_{plat}")
-                p_pack = st.number_input(f"Biaya Packing Rp ({plat})", min_value=0, value=0, step=500, key=f"pack_{plat}")
-                p_lain = st.number_input(f"Biaya Lain-lain Rp ({plat})", min_value=0, value=0, step=500, key=f"lain_{plat}")
-                
-                # RUMUS LOGIKA MATEMATIKA HITUNG PROFIT
-                omset_kotor = p_jual * p_qty
-                biaya_admin_total = ((p_persen / 100) * omset_kotor) + (p_fix * p_qty)
-                pengeluaran_total = (p_modal * p_qty) + biaya_admin_total + (p_pack * p_qty) + (p_lain * p_qty)
-                profit_bersih = omset_kotor - pengeluaran_total
-                margin_persen = (profit_bersih / omset_kotor * 100) if omset_kotor > 0 else 0.0
-                
-                # Simpan hasil kalkulasi ke dictionary
-                input_data[plat] = {
-                    "omset": omset_kotor,
-                    "admin": biaya_admin_total,
-                    "pengeluaran": pengeluaran_total,
-                    "profit": profit_bersih,
-                    "margin": margin_persen
-                }
-                
-        st.markdown("---")
-        st.markdown("## 📊 Tabel Hasil Analisis Perbandingan Profit")
-        
-        # KITA STRUKTURKAN MENJADI TABEL HORIZONTAL PERSIS SEPERTI GAMBAR CONTOH
-        baris_nama = [
-            "Total Omset Kotor", 
-            "Total Biaya Admin Marketplace", 
-            "Total Pengeluaran Keseluruhan", 
-            "Keuntungan Bersih (Profit)", 
-            "Persentase Margin (%)"
-        ]
-        
-        tabel_final = []
-        for komponen in baris_nama:
-            row_cells = {"Komponen Analisis": komponen}
-            for plat in list_platform:
-                data_plat = input_data[plat]
-                if komponen == "Total Omset Kotor":
-                    row_cells[plat] = f"Rp {data_plat['omset']:,.0f}"
-                elif komponen == "Total Biaya Admin Marketplace":
-                    row_cells[plat] = f"Rp {data_plat['admin']:,.0f}"
-                elif komponen == "Total Pengeluaran Keseluruhan":
-                    row_cells[plat] = f"Rp {data_plat['pengeluaran']:,.0f}"
-                elif komponen == "Keuntungan Bersih (Profit)":
-                    row_cells[plat] = f"Rp {data_plat['profit']:,.0f}"
-                elif komponen == "Persentase Margin (%)":
-                    row_cells[plat] = f"{data_plat['margin']:.2f} %"
-            tabel_final.append(row_cells)
+        with col_bersih1:
+            st.markdown("### 🎛️ Masukkan Data Simulasi")
+            calc_platform = st.selectbox("Pilih Platform Target", options=list(KONS_MARKETPLACE.keys()), key="clean_plat")
+            calc_produk = st.selectbox("Pilih Produk", options=MASTER_PRODUK_AKTIF, key="clean_prod")
             
-        df_hasil_tabel = pd.DataFrame(tabel_final)
-        
-        # Tampilkan tabel statis dengan kustomisasi visual sederhana di Streamlit
-        st.dataframe(df_hasil_tabel, use_container_width=True, hide_index=True)
-        
-        # MEMBERIKAN HIGHLIGHT WARNA COMPACT BOX DI BAWAHNYA AGAR MAKIN CANTIK & MUDAH DIBACA
-        st.markdown("### 🎯 Ringkasan Status Cuan Bersih:")
-        summary_cols = st.columns(5)
-        for idx, plat in enumerate(list_platform):
-            with summary_cols[idx]:
-                cuan = input_data[plat]['profit']
-                margin = input_data[plat]['margin']
-                if cuan > 0:
-                    st.markdown(f"<div style='background-color:#d4edda; padding:10px; border-radius:5px; text-align:center; border: 1px solid #c3e6cb;'><b style='color:#155724;'>🟢 {plat} Profit</b><br><span style='color:#155724; font-size:15px; font-weight:bold;'>Rp {cuan:,.0f}</span><br><small style='color:#155724;'>Margin: {margin:.2f}%</small></div>", unsafe_allow_html=True)
-                elif cuan == 0:
-                    st.markdown(f"<div style='background-color:#fff3cd; padding:10px; border-radius:5px; text-align:center; border: 1px solid #ffeeba;'><b style='color:#856404;'>🟡 {plat} BEP</b><br><span style='color:#856404; font-size:15px; font-weight:bold;'>Rp 0</span></div>", unsafe_allow_html=True)
-                else:
-                    st.markdown(f"<div style='background-color:#f8d7da; padding:10px; border-radius:5px; text-align:center; border: 1px solid #f5c6cb;'><b style='color:#721c24;'>🔴 {plat} BONCOS!</b><br><span style='color:#721c24; font-size:15px; font-weight:bold;'>Rp {cuan:,.0f}</span><br><small style='color:#721c24;'>Margin: {margin:.2f}%</small></div>", unsafe_allow_html=True)
+            # Ambil data bawaan database
+            df_harga_calc = muat_database_harga()
+            info_calc = df_harga_calc[df_harga_calc["Produk"] == calc_produk].iloc[0]
+            modal_awal = int(info_calc["Harga Modal"])
+            jual_awal = int(info_calc["Harga Jual"])
+            
+            # Sediakan data default potongan pasar harian
+            def_persen = KONS_MARKETPLACE[calc_platform]["persen"]
+            def_fix = KONS_MARKETPLACE[calc_platform]["fix"]
+            
+            # Input manual berbaris ke bawah (Anti-Pusing!)
+            p_jual = st.number_input("Harga Jual Manual (Rp)", min_value=0, value=jual_awal, step=1000, key="c_jual")
+            p_modal = st.number_input("Harga Modal Manual (Rp)", min_value=0, value=modal_awal, step=1000, key="c_modal")
+            p_qty = st.number_input("Jumlah / Quantity (Pcs)", min_value=1, value=1, key="c_qty")
+            p_persen = st.number_input("Biaya Admin % (Bisa Diedit)", min_value=0.0, value=float(def_persen), step=0.1, key="c_persen")
+            p_fix = st.number_input("Biaya Admin Fix Rp (Bisa Diedit)", min_value=0, value=int(def_fix), step=500, key="c_fix")
+            p_pack = st.number_input("Biaya Packing Kardus / Plastik (Rp)", min_value=0, value=0, step=500, key="c_pack")
+            p_lain = st.number_input("Biaya Operasional Lain-lain (Rp)", min_value=0, value=0, step=500, key="c_lain")
+
+        with col_bersih2:
+            st.markdown("### 📊 Tabel Rincian Keuntungan Bersih")
+            
+            # LOGIKA KALKULASI MATEMATIKA
+            omset_kotor = p_jual * p_qty
+            admin_persen_total = (p_persen / 100) * omset_kotor
+            admin_fix_total = p_fix * p_qty if p_jual > 0 else 0
+            biaya_admin_gabungan = admin_persen_total + admin_fix_total
+            
+            packing_total = p_pack * p_qty
+            lain_total = p_lain * p_qty
+            modal_total = p_modal * p_qty
+            
+            pengeluaran_total = modal_total + biaya_admin_gabungan + packing_total + lain_total
+            profit_bersih = omset_kotor - pengeluaran_total
+            margin_persen = (profit_bersih / omset_kotor * 100) if omset_kotor > 0 else 0.0
+            
+            # KOTAK HIGHLIGHT STATUS CUAN (SUCCESS / ERROR)
+            if profit_bersih > 0:
+                st.success(f"🟢 **STATUS: PROFIT BERSIH!** Anda untung **Rp {profit_bersih:,.0f}** pada platform {calc_platform}.")
+            elif profit_bersih == 0:
+                st.info(f"🟡 **STATUS: BALIK MODAL (BEP)!** Tidak untung dan tidak rugi.")
+            else:
+                st.error(f"🔴 **STATUS: BONCOS / RUGI!** Anda minus **Rp {profit_bersih:,.0f}**. Tolong naikkan harga jual harian!")
+            
+            st.write("")
+            
+            # MEMBUAT STRUKTUR TABEL VERTIKAL SEPERTI EXCEL REVISI KAMU
+            struktur_tabel_revisi = {
+                "Komponen Laporan Simulasi": [
+                    "1. Total Omset Kotor (+)",
+                    "2. Total Harga Pokok Modal (-)",
+                    "3. Total Biaya Admin % Marketplace (-)",
+                    "4. Total Biaya Admin Fix Per Item (-)",
+                    "5. Total Pengeluaran Packing Kardus (-)",
+                    "6. Total Biaya Operasional Lainnya (-)",
+                    "🔥 TOTAL PENGELUARAN KESELURUHAN",
+                    "💰 KEUNTUNGAN BERSIH (PROFIT NYATA)",
+                    "📈 PERSENTASE MARGIN (%)"
+                ],
+                f"Hasil Perhitungan ({calc_platform})": [
+                    f"Rp {omset_kotor:,.0f}",
+                    f"Rp {modal_total:,.0f}",
+                    f"Rp {admin_persen_total:,.0f}",
+                    f"Rp {admin_fix_total:,.0f}",
+                    f"Rp {packing_total:,.0f}",
+                    f"Rp {lain_total:,.0f}",
+                    f"Rp {pengeluaran_total:,.0f}",
+                    f"Rp {profit_bersih:,.0f}",
+                    f"{margin_persen:.2f} %"
+                ]
+            }
+            
+            df_revisi_final = pd.DataFrame(struktur_tabel_revisi)
+            st.dataframe(df_revisi_final, use_container_width=True, hide_index=True)
