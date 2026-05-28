@@ -514,7 +514,15 @@ with tab3:
             st.session_state.pesan_toast = "🚀 Sukses! Kamu berhasil mengupdate modal dan harga jual pasar terbaru!"
             st.session_state.icon_toast = "💾"
             st.rerun()
-
+# Tambahkan ini di bagian Sidebar atau Tab 3 untuk Admin/Owner
+with st.sidebar:
+    st.markdown("---")
+    st.subheader("⚠️ Manajemen Database")
+    if st.button("Hapus Semua Data Transaksi (Reset)"):
+        if os.path.exists(DB_FILE):
+            os.remove(DB_FILE)
+            st.success("Database transaksi berhasil dihapus!")
+            st.rerun()
 # --- TAB 4: KALKULATOR SIMULASI PROFIT MASSAL ---
 with tab4:
     st.subheader("🧮 Tabel Simulasi Profit Massal Semua Produk")
