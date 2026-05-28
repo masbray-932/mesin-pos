@@ -240,7 +240,7 @@ st.write(f"Selamat bekerja, **{st.session_state.user_role}**! Data tersinkronisa
 
 tab1, tab2, tab3 = st.tabs(["📥 Input Transaksi Baru", "📈 Riwayat & Laporan Penjualan", "⚙️ Kelola Manajemen Produk & Harga"])
 
-# --- TAB 1: INPUT TRANSAKSI ---
+# --- TAB 1: INPUT TRANSAKSI (🔥 UPGRADE: MANUAL INPUT UNTUK OFFLINE) ---
 with tab1:
     st.subheader("Tambah Transaksi Baru")
     if not MASTER_PRODUK_AKTIF:
@@ -252,13 +252,24 @@ with tab1:
             platform_pilihan = st.selectbox("Pilih Platform Marketplace", options=list(KONS_MARKETPLACE.keys()))
             nama_produk = st.selectbox("Nama Produk / SKU", options=MASTER_PRODUK_AKTIF)
             
+            # Ambil acuan harga harian dari database lokal
             df_harga_terbaru = muat_database_harga()
             info_produk = df_harga_terbaru[df_harga_terbaru["Produk"] == nama_produk].iloc[0]
-            harga_jual_terkunci = int(info_produk["Harga Jual"])
-            harga_modal_terkunci = int(info_produk["Harga Modal"])
+            harga_jual_default = int(info_produk["Harga Jual"])
+            harga_modal_default = int(info_produk["Harga Modal"])
             
-            st.write(f"💵 **Harga Jual Hari Ini:** Rp {harga_jual_terkunci:,.0f}")
-            st.write(f"📉 **Harga Modal Hari Ini:** Rp {harga_modal_terkunci:,.0f}")
+            # 🔥 SAKLAR PENGATUR AUTOMATION / MANUAL INPUT
+            if platform_pilihan == "Offline / WA":
+                st.info("💡 Mode Offline Aktif: Kamu bebas mengubah angka harga jual & modal di bawah ini secara manual!")
+                harga_jual_final = st.number_input("Harga Jual Khusus (Rp)", min_value=0, value=harga_jual_default, step=1000)
+                harga_modal_final = st.number_input("Harga Modal Khusus (Rp)", min_value=0, value=harga_modal_default, step=1000)
+            else:
+                # Kolom terkunci otomatis jika memilih Shopee, TikTok, Tokopedia, Lazada
+                harga_jual_final = harga_jual_default
+                harga_modal_final = harga_modal_default
+                st.write(f"💵 **Harga Jual Terkunci ({platform_pilihan}):** Rp {harga_jual_final:,.0f}")
+                st.write(f"📉 **Harga Modal Terkunci ({platform_pilihan}):** Rp {harga_modal_final:,.0f}")
+            
             jumlah_terjual = st.number_input("Jumlah Terjual (pcs/pack)", min_value=1, value=1, key="jumlah")
 
         with col2:
@@ -274,7 +285,7 @@ with tab1:
             """)
 
         if st.button("💾 Simpan Transaksi Ke Database", type="primary", use_container_width=True):
-            simpan_transaksi(platform_pilihan, nama_produk, harga_jual_terkunci, harga_modal_terkunci, jumlah_terjual, biaya_lainnya)
+            simpan_transaksi(platform_pilihan, nama_produk, harga_jual_final, harga_modal_final, jumlah_terjual, biaya_lainnya)
             st.session_state.pesan_toast = f"🎉 Kamu berhasil menginput transaksi {platform_pilihan} untuk '{nama_produk}'!"
             st.session_state.icon_toast = "✅"
             st.rerun()
@@ -422,7 +433,6 @@ with tab3:
                     list_prod_hapus = [df_hapus_prod.iloc[int(idx)]["Produk"] for idx, status in perubahan_prod.items() if status.get("Pilih") == True]
                     
                     if list_prod_hapus:
-                        # 🔥 FIX: Di bawah ini sudah ditambahkan tanda titik dua (:) di akhir perintah looping!
                         if st.button(f"❌ Hapus ({len(list_prod_hapus)}) Produk Tercentang", type="secondary", use_container_width=True):
                             for p_nama in list_prod_hapus:
                                 hapus_produk_by_name(p_nama)
