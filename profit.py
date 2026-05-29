@@ -30,7 +30,7 @@ def connect_sheets():
 def muat_data_transaksi():
     try:
         sheet = connect_sheets()
-        if sheet:
+        if sheet is not None:
             data = sheet.get_all_records()
             return pd.DataFrame(data)
     except Exception as e:
@@ -63,7 +63,7 @@ def simpan_transaksi(platform, toko, produk, harga_jual, harga_modal, jumlah, bi
     
     try:
         sheet = connect_sheets()
-        if sheet:
+        if sheet is not None:
             sheet.append_row(row)
     except Exception as e:
         st.error(f"Gagal menyimpan data ke Google Sheets: {e}")
@@ -77,7 +77,7 @@ if "pesan_toast" in st.session_state and st.session_state.pesan_toast:
     st.session_state.icon_toast = "✅"
 
 # ==========================================
-# 🔥 PROTEKSI HARD RESET JIKA FILE CORRUPT
+# 🔥 PROTECTIONS & PARAMETERS
 # ==========================================
 def validasi_dan_shared_clean(nama_file, kolom_wajib):
     if os.path.exists(nama_file):
@@ -92,16 +92,23 @@ def validasi_dan_shared_clean(nama_file, kolom_wajib):
 validasi_dan_shared_clean(DB_MASTER_PRODUK, ["Produk"])
 validasi_dan_shared_clean(DB_HARGA, ["Produk", "Harga Jual", "Harga Modal"])
 
-# DATA KONFIGURASI KASIR
 AKUN_USER = {
     "owner": {"password": "owner123", "role": "Owner"},
     "admin": {"password": "admin123", "role": "Admin"}
 }
 
 PRODUK_DEFAULT = [
-    "Ayam Kampung Omega", "Ayam Kampung Omega Grade A", "Ayam Negri", 
-    "Ayam Negri Omega", "Ayam Kampung Kuning", "Ayam Kampung Kuning Grade A", 
-    "Puyuh", "Bebek", "Bebek Asin", "Kampung Omega (30 butir)", "Kampung Omega Grade A (30 butir)"
+    "Ayam Kampung Omega", 
+    "Ayam Kampung Omega Grade A", 
+    "Ayam Negri", 
+    "Ayam Negri Omega", 
+    "Ayam Kampung Kuning", 
+    "Ayam Kampung Kuning Grade A", 
+    "Puyuh", 
+    "Bebek", 
+    "Bebek Asin", 
+    "Kampung Omega (30 butir)", 
+    "Kampung Omega Grade A (30 butir)"
 ]
 
 KONS_MARKETPLACE = {
@@ -115,10 +122,12 @@ KONS_MARKETPLACE = {
 DAFTAR_TOKO_PLATFORM = {
     "Shopee": ["Sinar Bintang Telur", "EGGKU", "Astra Telur", "Telur88"],
     "Tokopedia": ["Sinar Bintang Telur", "SB Telur", "Astra Telur"],
-    "TikTok Shop": ["Utama"], "Lazada": ["Utama"], "Offline / WA": ["Toko Offline"]
+    "TikTok Shop": ["Utama"], 
+    "Lazada": ["Utama"], 
+    "Offline / WA": ["Toko Offline"]
 }
 
-# --- FUNGSI PRODUK & HARGA ---
+# --- FUNGSI PRODUK & HARGA LOKAL ---
 def muat_daftar_produk():
     if os.path.exists(DB_MASTER_PRODUK):
         try:
@@ -231,7 +240,7 @@ with st.sidebar:
         st.rerun()
 
 st.title("🏪 MESIN POS MULTI-MARKETPLACE")
-st.write(f"Selamat bekerja, **{st.session_state.user_role}**! Data tersinkronisasi otomatis ke Google Sheets.")
+st.write(f"Selamat bekerja, **{st.session_state.user_role}**! Data transaksi tersinkronisasi otomatis ke Google Sheets Cloud.")
 
 tab1, tab2, tab3, tab4 = st.tabs([
     "📥 Input Transaksi Baru", "📈 Riwayat & Laporan Penjualan", 
@@ -328,9 +337,9 @@ with tab2:
                 
                 if list_id_hapus and st.button(f"❌ Hapus ({len(list_id_hapus)}) Transaksi Terpilih Dari Cloud"):
                     sheet = connect_sheets()
-                    if sheet:
+                    if sheet is not None:
                         for idx in sorted(list_id_hapus, reverse=True):
-                            sheet.delete_rows(idx + 2) # +2 karena header gsheet & 0-index dataframe
+                            sheet.delete_rows(idx + 2)
                         st.session_state.pesan_toast = "🗑️ Sukses menghapus data dari Google Sheets!"
                         st.rerun()
 
@@ -384,9 +393,13 @@ with tab4:
         df_base_harga = muat_database_harga()
         
         df_simulasi = pd.DataFrame({
-            "Produk": df_base_harga["Produk"], "Harga Jual (Rp)": df_base_harga["Harga Jual"],
-            "Harga Modal (Rp)": df_base_harga["Harga Modal"], "Qty (Pcs)": 1,
-            "Admin (%)": float(admin_persen_def), "Packing (Rp)": 0, "Lain-lain (Rp)": 0
+            "Produk": df_base_harga["Produk"], 
+            "Harga Jual (Rp)": df_base_harga["Harga Jual"],
+            "Harga Modal (Rp)": df_base_harga["Harga Modal"], 
+            "Qty (Pcs)": 1,
+            "Admin (%)": float(admin_persen_def), 
+            "Packing (Rp)": 0, 
+            "Lain-lain (Rp)": 0
         })
         
         if "tabel_sim_state" not in st.session_state or st.session_state.get("prev_plat") != platform_calc:
@@ -403,14 +416,12 @@ with tab4:
         st.markdown("### 📊 Live Hasil Perhitungan Profit Bersih")
         omset_kotor = df_hasil_edit["Harga Jual (Rp)"] * df_hasil_edit["Qty (Pcs)"]
         biaya_admin_total = (df_hasil_edit["Admin (%)"] / 100) * omset_kotor
-        
-        # SAKTI: Tanda petik miringnya sudah dibuang di bawah ini:
         pengeluaran_total = (df_hasil_edit["Harga Modal (Rp)"] * df_hasil_edit["Qty (Pcs)"]) + biaya_admin_total + (df_hasil_edit["Packing (Rp)"] * df_hasil_edit["Qty (Pcs)"]) + (df_hasil_edit["Lain-lain (Rp)"] * df_hasil_edit["Qty (Pcs)"])
-        
         profit_total_bersih = omset_kotor - pengeluaran_total
         
         df_laporan_hasil = pd.DataFrame({
-            "Nama Produk": df_hasil_edit["Produk"], "Total Omset Kotor": omset_kotor.map(lambda x: f"Rp {x:,.0f}"),
+            "Nama Produk": df_hasil_edit["Produk"], 
+            "Total Omset Kotor": omset_kotor.map(lambda x: f"Rp {x:,.0f}"),
             "PROFIT BERSIH": profit_total_bersih.map(lambda x: f"Rp {x:,.0f}")
         })
         st.dataframe(df_laporan_hasil, use_container_width=True, hide_index=True)
