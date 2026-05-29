@@ -78,7 +78,14 @@ DAFTAR_TOKO_PLATFORM = {
     "Lazada": ["Utama"],
     "Offline / WA": ["Toko Offline"]
 }
-
+def connect_sheets():
+    # Mengambil semua data dari [gcp] di Secrets
+    creds_dict = dict(st.secrets["gcp"]) 
+    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+    client = gspread.authorize(creds)
+    # Pastikan nama file ini SAMA PERSIS dengan nama Google Sheet yang kamu buat
+    return client.open("Data_Transaksi_POS").sheet1
 # --- FUNGSI DETEKSI & MUAT DATABASE ---
 def muat_daftar_produk():
     if os.path.exists(DB_MASTER_PRODUK):
