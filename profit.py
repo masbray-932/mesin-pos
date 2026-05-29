@@ -403,7 +403,10 @@ with tab4:
         st.markdown("### 📊 Live Hasil Perhitungan Profit Bersih")
         omset_kotor = df_hasil_edit["Harga Jual (Rp)"] * df_hasil_edit["Qty (Pcs)"]
         biaya_admin_total = (df_hasil_edit["Admin (%)"] / 100) * omset_kotor
-        pengeluaran_total = (df_hasil_edit["Harga` Modal (Rp)"] * df_hasil_edit["Qty (Pcs)"]) + biaya_admin_total + (df_hasil_edit["Packing (Rp)"] * df_hasil_edit["Qty (Pcs)"]) + (df_hasil_edit["Lain-lain (Rp)"] * df_hasil_edit["Qty (Pcs)"])
+        
+        # SAKTI: Tanda petik miringnya sudah dibuang di bawah ini:
+        pengeluaran_total = (df_hasil_edit["Harga Modal (Rp)"] * df_hasil_edit["Qty (Pcs)"]) + biaya_admin_total + (df_hasil_edit["Packing (Rp)"] * df_hasil_edit["Qty (Pcs)"]) + (df_hasil_edit["Lain-lain (Rp)"] * df_hasil_edit["Qty (Pcs)"])
+        
         profit_total_bersih = omset_kotor - pengeluaran_total
         
         df_laporan_hasil = pd.DataFrame({
