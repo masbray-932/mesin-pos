@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
+import os  # SAKTI: Kita tambahkan ini agar perintah os.path.exists tidak error lagi!
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
