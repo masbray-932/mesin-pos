@@ -289,59 +289,48 @@ with tab1:
 
 # --- TAB 2: RIWAYAT & LAPORAN ---
 with tab2:
-    st.subheader("Riwayat & Analisis Penjualan")
-    df_transaksi = muat_data_transaksi()
+    st.subheader("Riwayat Penjualan Cloud")
     
-    if df_transaksi.empty: st.info("Belum ada data transaksi yang disimpan di Google Sheets.")
-    else:
-        col_f1, col_f2, col_f2_b, col_f3 = st.columns(4)
-        with col_f1:
-            waktu_jkt = datetime.utcnow() + timedelta(hours=7)
-            rentang_tanggal = st.date_input("Pilih Rentang Tanggal", value=(waktu_jkt.date(), waktu_jkt.date()))
-        with col_f2:
-            platform_terpilih = st.selectbox("Filter Platform", options=["Semua Platform"] + list(KONS_MARKETPLACE.keys()))
-        with col_f2_b:
-            list_toko = ["Semua Cabang Toko"] + sorted(df_transaksi["Toko"].dropna().unique().tolist())
-            toko_terpilih = st.selectbox("Filter Toko", options=list_toko)
-        with col_f3:
-            produk_terpilih = st.selectbox("Filter Produk", options=["Semua Produk"] + MASTER_PRODUK_AKTIF)
-        
-        if isinstance(rentang_tanggal, tuple) and len(rentang_tanggal) == 2:
-            tgl_mulai, tgl_akhir = rentang_tanggal
-            df_transaksi['Tanggal'] = pd.to_datetime(df_transaksi['Tanggal']).dt.date
-            df_filtered = df_transaksi[(df_transaksi["Tanggal"] >= tgl_mulai) & (df_transaksi["Tanggal"] <= tgl_akhir)].copy()
-            if platform_terpilih != "Semua Platform": df_filtered = df_filtered[df_filtered["Platform"] == platform_terpilih]
-            if toko_terpilih != "Semua Cabang Toko": df_filtered = df_filtered[df_filtered["Toko"] == toko_terpilih]
-            if produk_terpilih != "Semua Produk": df_filtered = df_filtered[df_filtered["Produk"] == produk_terpilih]
-                
-            if df_filtered.empty: st.warning("Data tidak ditemukan pada filter ini.")
-            else:
-                m1, m2 = st.columns(2)
-                m1.metric("Total Omset", f"Rp {df_filtered['Total Omset'].sum():,.0f}")
-                m2.metric("Total Terjual", f"{df_filtered['Jumlah'].sum()} pcs")
-                
-                st.markdown("### ✏️ Data Transaksi (Centang untuk Hapus - Admin & Owner)")
-                df_tampilan = df_filtered.copy()
-                df_tampilan.insert(0, "Pilih", False)
-                df_tampilan["ID Asli"] = df_filtered.index
-                
-                df_edit = st.data_editor(
-                    df_tampilan, hide_index=True, use_container_width=True,
-                    disabled=[col for col in df_tampilan.columns if col != "Pilih"],
-                    column_config={"Pilih": st.column_config.CheckboxColumn("Pilih", default=False)},
-                    key="editor_transaksi_global"
-                )
-                
-                # --- CARI BAGIAN INI DI TAB 2 ---
-        perubahan = st.session_state.editor_transaksi_global.get("edited_rows", {})
-        list_id_hapus = [int(idx) for idx, status in perubahan.items() if status.get("Pilih") == True]
-        
-        if list_id_hapus and st.button(f"❌ Hapus ({len(list_id_hapus)}) Data Terpilih"):
-            sheet = connect_sheets("Transaksi")
-            if sheet:
-                # SAKTI: Kita pastikan idx diubah menjadi int() murni Python agar Google Sheets tidak eror
+    # 1. Buka koneksi sekali saja ke worksheet Transaksi
+    sheet_transaksi = connect_sheets("Transaksi")
+    
+    if sheet_transaksi is not None:
+        # 2. Ambil data dari koneksi yang sudah terbuka
+        try:
+            data_records = sheet_transaksi.get_all_records()
+            df_transaksi = pd.DataFrame(data_records)
+        except:
+            df_transaksi = pd.DataFrame(columns=["Waktu", "Tanggal", "Platform", "Toko", "Produk", "Harga Jual", "Harga Modal", "Jumlah", "Biaya Admin %", "Biaya Fix", "Biaya Lain", "Total Omset", "Total Profit"])
+            
+        if df_transaksi.empty: 
+            st.info("Belum ada data di Google Sheets.")
+        else:
+            # Tampilkan Metrik
+            m1, m2 = st.columns(2)
+            m1.metric("Total Omset", f"Rp {df_transaksi['Total Omset'].sum():,.0f}")
+            m2.metric("Total Terjual", f"{df_transaksi['Jumlah'].sum()} pcs")
+            
+            # Siapkan Tabel Editor
+            df_tampilan = df_transaksi.copy()
+            df_tampilan.insert(0, "Pilih", False)
+            df_edit = st.data_editor(
+                df_tampilan, 
+                hide_index=True, 
+                use_container_width=True, 
+                disabled=[col for col in df_tampilan.columns if col != "Pilih"], 
+                key="editor_transaksi_global"
+            )
+            
+            # Ambil index baris yang dicentang
+            perubahan = st.session_state.editor_transaksi_global.get("edited_rows", {})
+            list_id_hapus = [int(idx) for idx, status in perubahan.items() if status.get("Pilih") == True]
+            
+            # Eksekusi Hapus menggunakan koneksi sheet_transaksi yang sudah ada di atas
+            if list_id_hapus and st.button(f"❌ Hapus ({len(list_id_hapus)}) Data Terpilih"):
+                # Urutkan dari index terbesar agar urutan baris gsheet tidak bergeser saat dihapus
                 for idx in sorted(list_id_hapus, reverse=True): 
-                    sheet.delete_rows(int(idx) + 2)
+                    sheet_transaksi.delete_rows(idx + 2) # +2 karena header gsheet & 0-index dataframe
+                st.success("Data berhasil dihapus dari Cloud!")
                 st.rerun()
 
 # --- TAB 3: MANAJEMEN PRODUK & HARGA ---
