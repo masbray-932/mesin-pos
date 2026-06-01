@@ -332,16 +332,17 @@ with tab2:
                     key="editor_transaksi_global"
                 )
                 
-                perubahan = st.session_state.editor_transaksi_global.get("edited_rows", {})
-                list_id_hapus = [df_tampilan.iloc[int(idx)]["ID Asli"] for idx, status in perubahan.items() if status.get("Pilih") == True]
-                
-                if list_id_hapus and st.button(f"❌ Hapus ({len(list_id_hapus)}) Transaksi Terpilih Dari Cloud"):
-                    sheet = connect_sheets()
-                    if sheet is not None:
-                        for idx in sorted(list_id_hapus, reverse=True):
-                            sheet.delete_rows(idx + 2)
-                        st.session_state.pesan_toast = "🗑️ Sukses menghapus data dari Google Sheets!"
-                        st.rerun()
+                # --- CARI BAGIAN INI DI TAB 2 ---
+        perubahan = st.session_state.editor_transaksi_global.get("edited_rows", {})
+        list_id_hapus = [int(idx) for idx, status in perubahan.items() if status.get("Pilih") == True]
+        
+        if list_id_hapus and st.button(f"❌ Hapus ({len(list_id_hapus)}) Data Terpilih"):
+            sheet = connect_sheets("Transaksi")
+            if sheet:
+                # SAKTI: Kita pastikan idx diubah menjadi int() murni Python agar Google Sheets tidak eror
+                for idx in sorted(list_id_hapus, reverse=True): 
+                    sheet.delete_rows(int(idx) + 2)
+                st.rerun()
 
 # --- TAB 3: MANAJEMEN PRODUK & HARGA ---
 with tab3:
