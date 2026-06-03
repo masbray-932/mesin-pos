@@ -95,7 +95,6 @@ def muat_database_harga():
             df = pd.DataFrame(sheet.get_all_records())
             if not df.empty and "Produk" in df.columns:
                 df["Produk"] = df["Produk"].astype(str).str.strip()
-                df = df[df["Produk"].isin(daftar_produk_aktif)]
                 
                 missing_products = [p for p in daftar_produk_aktif if p not in df["Produk"].values]
                 if missing_products:
@@ -103,7 +102,12 @@ def muat_database_harga():
                     sheet_harga = doc.worksheet("Harga_Pasar")
                     for p in missing_products:
                         sheet_harga.append_row([p, 100000, 60000])
+                    # Ambil ulang data terbaru setelah di-append
                     df = pd.DataFrame(sheet_harga.get_all_records())
+                    df["Produk"] = df["Produk"].astype(str).str.strip()
+                
+                # SINKRONISASI AKHIR: Pastikan data yang keluar hanya produk yang aktif
+                df = df[df["Produk"].isin(daftar_produk_aktif)]
                 return df
     except: pass
     return pd.DataFrame([{"Produk": p, "Harga Jual": 100000, "Harga Modal": 60000} for p in daftar_produk_aktif])
@@ -274,54 +278,61 @@ tab1, tab2, tab3, tab4 = st.tabs([
     "🧮 Kalkulator Simulasi Profit"
 ])
 
-# --- TAB 1: INPUT TRANSAKSI ---
+# --- TAB 1: INPUT TRANSAKSI (SUPER REVOLUTIONARY SPEED) ---
 with tab1:
     st.subheader("Tambah Transaksi Baru")
     if not MASTER_PRODUK_AKTIF:
         st.warning("⚠️ Belum ada daftar produk di sistem.")
     else:
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown("### 🛍️ Detail Penjualan")
-            hari_ini_wib = (datetime.utcnow() + timedelta(hours=7)).date()
-            
-            input_tanggal_manual = st.date_input("Pilih Tanggal Transaksi", value=hari_ini_wib, key="input_tgl")
-            platform_pilihan = st.selectbox("Pilih Platform Marketplace", options=list(KONS_MARKETPLACE.keys()))
-            
-            list_toko_tersedia = DAFTAR_TOKO_PLATFORM[platform_pilihan]
-            toko_pilihan = st.selectbox("Pilih Cabang Toko Anda", options=list_toko_tersedia, key="pilih_toko_trx")
-            nama_produk = st.selectbox("Nama Produk / SKU", options=MASTER_PRODUK_AKTIF)
-            
-            df_harga_terbaru = muat_database_harga()
-            info_produk = df_harga_terbaru[df_harga_terbaru["Produk"] == nama_produk].iloc[0] if nama_produk in df_harga_terbaru["Produk"].values else {"Harga Jual": 100000, "Harga Modal": 60000}
-            harga_jual_default = int(info_produk["Harga Jual"])
-            harga_modal_final = int(info_produk["Harga Modal"])
-            
-            if platform_pilihan == "Offline / WA":
-                st.info("💡 Mode Offline Active: Kamu bebas mengubah angka harga jual khusus di bawah ini!")
-                harga_jual_final = st.number_input("Harga Jual Khusus (Rp)", min_value=0, value=harga_jual_default, step=1000)
-                st.write(f"📉 **Harga Modal Terkunci (Sistem):** Rp {harga_modal_final:,.0f}")
-            else:
-                harga_jual_final = harga_jual_default
-                st.write(f"💵 **Harga Jual Terkunci ({platform_pilihan}):** Rp {harga_jual_final:,.0f}")
-                st.write(f"📉 **Harga Modal Terkunci ({platform_pilihan}):** Rp {harga_modal_final:,.0f}")
-            
-            jumlah_terjual = st.number_input("Jumlah Terjual (pcs/pack)", min_value=1, value=1, key="jumlah")
+        # BUNGKUS DENGAN FORM: Mengunci semua inputan agar ketikan kasir 0 detik tanpa delay!
+        with st.form("kontainer_input_kasir", clear_on_submit=False):
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("### 🛍️ Detail Penjualan")
+                hari_ini_wib = (datetime.utcnow() + timedelta(hours=7)).date()
+                
+                input_tanggal_manual = st.date_input("Pilih Tanggal Transaksi", value=hari_ini_wib, key="input_tgl")
+                platform_pilihan = st.selectbox("Pilih Platform Marketplace", options=list(KONS_MARKETPLACE.keys()))
+                
+                list_toko_tersedia = DAFTAR_TOKO_PLATFORM[platform_pilihan]
+                toko_pilihan = st.selectbox("Pilih Cabang Toko Anda", options=list_toko_tersedia, key="pilih_toko_trx")
+                nama_produk = st.selectbox("Nama Produk / SKU", options=MASTER_PRODUK_AKTIF)
+                
+                df_harga_terbaru = muat_database_harga()
+                info_produk = df_harga_terbaru[df_harga_terbaru["Produk"] == nama_produk].iloc[0] if nama_produk in df_harga_terbaru["Produk"].values else {"Harga Jual": 100000, "Harga Modal": 60000}
+                harga_jual_default = int(info_produk["Harga Jual"])
+                harga_modal_final = int(info_produk["Harga Modal"])
+                
+                if platform_pilihan == "Offline / WA":
+                    st.info("💡 Mode Offline Active: Kamu bebas mengubah angka harga jual khusus di bawah ini!")
+                    harga_jual_final = st.number_input("Harga Jual Khusus (Rp)", min_value=0, value=harga_jual_default, step=1000)
+                    st.write(f"📉 **Harga Modal Terkunci (Sistem):** Rp {harga_modal_final:,.0f}")
+                else:
+                    harga_jual_final = harga_jual_default
+                    st.write(f"💵 **Harga Jual Terkunci ({platform_pilihan}):** Rp {harga_jual_final:,.0f}")
+                    st.write(f"📉 **Harga Modal Terkunci ({platform_pilihan}):** Rp {harga_modal_final:,.0f}")
+                
+                jumlah_terjual = st.number_input("Jumlah Terjual (pcs/pack)", min_value=1, value=1, key="jumlah")
 
-        with col2:
-            st.markdown("### 💸 Biaya Tambahan")
-            biaya_lainnya = st.number_input("Biaya Lain-lain per Produk (Rp)", min_value=0, value=0, key="lain")
-            p_persen = KONS_MARKETPLACE[platform_pilihan]["persen"]
-            p_fix = KONS_MARKETPLACE[platform_pilihan]["fix"]
-            
-            st.info(f"""
-            **📋 Skema Potongan Admin ({platform_pilihan} - {toko_pilihan}):**
-            * Biaya Admin Persen: **{p_persen}%** dari total omset.
-            * Biaya Fix Transaksi: **Rp {p_fix:,.0f}** dipotong per transaksi.
-            """)
+            with col2:
+                st.markdown("### 💸 Biaya Tambahan")
+                biaya_lainnya = st.number_input("Biaya Lain-lain per Produk (Rp)", min_value=0, value=0, key="lain")
+                p_persen = KONS_MARKETPLACE[platform_pilihan]["persen"]
+                p_fix = KONS_MARKETPLACE[platform_pilihan]["fix"]
+                
+                st.info(f"""
+                **📋 Skema Potongan Admin ({platform_pilihan} - {toko_pilihan}):**
+                * Biaya Admin Persen: **{p_persen}%** dari total omset.
+                * Biaya Fix Transaksi: **Rp {p_fix:,.0f}** dipotong per transaksi.
+                """)
 
-        if st.button("💾 Simpan Transaksi Ke Database", type="primary", use_container_width=True):
-            simpan_transaksi(platform_pilihan, toko_pilihan, nama_produk, harga_jual_final, harga_modal_final, jumlah_terjual, biaya_lainnya, input_tanggal_manual)
+            # Tombol submit khusus form
+            tombol_simpan_form = st.form_submit_button("💾 Simpan Transaksi Ke Database", type="primary", use_container_width=True)
+
+        # Logika eksekusi HANYA berjalan setelah tombol diklik
+        if tombol_simpan_form:
+            with st.spinner("⏳ Sedang menyinkronkan data ke Cloud Google Sheets..."):
+                simpan_transaksi(platform_pilihan, toko_pilihan, nama_produk, harga_jual_final, harga_modal_final, jumlah_terjual, biaya_lainnya, input_tanggal_manual)
             st.session_state.pesan_toast = f"🎉 Sukses menginput transaksi Toko [{toko_pilihan}] untuk '{nama_produk}'!"
             st.session_state.icon_toast = "✅"
             st.rerun()
