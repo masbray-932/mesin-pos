@@ -70,8 +70,9 @@ DAFTAR_TOKO_PLATFORM = {
 }
 
 # ==========================================
-# 🔄 FUNGSI PRODUK & HARGA (MURNI CLOUD GSHEET)
+# 🔄 FUNGSI PRODUK & HARGA (OPTIMIZED WITH CACHE)
 # ==========================================
+@st.cache_data(ttl=10) # <--- SAKTI: VPS mengingat data ini 10 detik, ketikan kasir jadi wus-wus!
 def muat_daftar_produk():
     try:
         doc = connect_sheets()
@@ -84,6 +85,7 @@ def muat_daftar_produk():
     except: pass
     return PRODUK_DEFAULT
 
+@st.cache_data(ttl=10) # <--- SAKTI: Mengunci database harga di memori sementara agar tidak bikin delay
 def muat_database_harga():
     daftar_produk_aktif = muat_daftar_produk()
     try:
@@ -113,6 +115,7 @@ def simpan_database_harga(df_baru):
             sheet = doc.worksheet("Harga_Pasar")
             sheet.clear()
             sheet.update([df_baru.columns.values.tolist()] + df_baru.values.tolist())
+            st.cache_data.clear() # <--- SAKTI: Bersihkan cache agar perubahan harga langsung ter-refresh!
     except Exception as e: 
         st.error(f"Gagal menyimpan harga ke Cloud: {e}")
 
@@ -128,6 +131,7 @@ def tambah_produk_baru(nama_baru, h_jual, h_modal):
         if doc:
             doc.worksheet("Master_Produk").append_row([nama_baru_clean])
             doc.worksheet("Harga_Pasar").append_row([nama_baru_clean, int(h_jual), int(h_modal)])
+            st.cache_data.clear() # <--- SAKTI: Bersihkan cache agar produk baru langsung masuk pilihan kasir
             return True, f"Produk '{nama_baru_clean}' sukses terdaftar tunggal!"
     except Exception as e:
         return False, f"Gagal menambahkan ke Cloud: {e}"
@@ -152,6 +156,7 @@ def hapus_produk_by_name(nama_hapus):
                 idx_h = df_h[df_h["Produk"].str.lower() == nama_hapus_clean.lower()].index
                 for i in sorted(idx_h, reverse=True):
                     sh_harga.delete_rows(int(i) + 2)
+            st.cache_data.clear() # <--- SAKTI: Bersihkan cache setelah produk dihapus
             return True
     except: pass
     return False
